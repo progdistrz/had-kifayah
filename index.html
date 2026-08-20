@@ -1,0 +1,2424 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Had Kifayah — Assessment Calon Penerima Manfaat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Firebase (compat SDK, tanpa build tools, cocok untuk single-file GitHub Pages) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-analytics-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+/* ============================================================
+   DESIGN TOKENS
+   ============================================================ */
+:root{
+  --bg: #FAF7EF;
+  --surface: #FFFFFF;
+  --surface-sunken: #F3EEE1;
+  --ink: #1E2624;
+  --ink-muted: #5C6864;
+  --ink-faint: #8B958F;
+  --line: #E3DDCB;
+  --line-strong: #C9C0A6;
+  --primary: #145C46;
+  --primary-dark: #0C3F30;
+  --primary-tint: #E4EEE8;
+  --accent: #C7962C;
+  --accent-tint: #F7EDD6;
+  --danger: #B3261E;
+  --danger-tint: #FBE9E7;
+  --warn: #9A6B0B;
+  --warn-tint: #FBF0D9;
+  --success: #1E7A45;
+  --success-tint: #E5F3EA;
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 16px;
+  --shadow-card: 0 1px 2px rgba(30,38,36,0.06), 0 8px 24px -12px rgba(30,38,36,0.18);
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Public Sans', -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+*{ box-sizing: border-box; }
+html{ scroll-behavior: smooth; }
+body{
+  margin:0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+h1,h2,h3,h4{ font-family: var(--font-display); font-weight:600; margin:0; color: var(--primary-dark); }
+p{ margin:0; }
+button{ font-family: inherit; }
+input, select, textarea{ font-family: inherit; font-size: 15px; }
+::selection{ background: var(--accent-tint); }
+a{ color: var(--primary); }
+
+.mono{ font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* ============================================================
+   LAYOUT SHELLS
+   ============================================================ */
+#app{ min-height:100vh; }
+.hidden{ display:none !important; }
+
+.topbar{
+  position: sticky; top:0; z-index: 40;
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 14px 24px;
+  background: var(--primary-dark);
+  color:#fff;
+  border-bottom: 3px solid var(--accent);
+}
+.topbar .brand{ display:flex; align-items:center; gap:10px; }
+.topbar .brand .mark{
+  width:34px; height:34px; border-radius:8px;
+  background: var(--accent);
+  display:flex; align-items:center; justify-content:center;
+  font-family: var(--font-display); font-weight:700; color: var(--primary-dark);
+  font-size:16px;
+}
+.topbar .brand .name{ font-family: var(--font-display); font-weight:600; font-size:17px; letter-spacing:.2px; }
+.topbar .brand .sub{ font-size:11px; color: rgba(255,255,255,.65); letter-spacing:.4px; text-transform:uppercase; }
+.topbar nav{ display:flex; gap:8px; align-items:center; }
+.topbar nav a, .topbar nav button{
+  color: rgba(255,255,255,.85); text-decoration:none; font-size:13px;
+  background:transparent; border:1px solid rgba(255,255,255,.25); padding:7px 13px; border-radius:999px; cursor:pointer;
+}
+.topbar nav a:hover, .topbar nav button:hover{ background: rgba(255,255,255,.1); color:#fff; }
+
+.shell{ max-width: 1180px; margin:0 auto; padding: 28px 24px 80px; }
+
+/* ============================================================
+   LANDING / ROUTER CHOICE (fallback if hash is empty)
+   ============================================================ */
+.landing{ max-width: 780px; margin: 60px auto; padding: 0 24px; text-align:center; }
+.landing h1{ font-size: 34px; margin-bottom:10px; }
+.landing p.lede{ color: var(--ink-muted); font-size:16px; max-width:520px; margin: 0 auto 32px; }
+.landing .choices{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; text-align:left; }
+.choice-card{
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-l);
+  padding: 22px; box-shadow: var(--shadow-card); cursor:pointer; text-decoration:none; color: var(--ink);
+  transition: transform .15s ease, border-color .15s ease;
+}
+.choice-card:hover{ transform: translateY(-2px); border-color: var(--primary); }
+.choice-card .eyebrow{ font-size:11px; letter-spacing:.6px; text-transform:uppercase; color: var(--accent); font-weight:700; }
+.choice-card h3{ font-size:19px; margin: 6px 0 6px; }
+.choice-card p{ color: var(--ink-muted); font-size:13.5px; }
+.choices-3{ grid-template-columns: 1fr 1fr 1fr; }
+.choice-card-disabled{ opacity:.55; cursor:default; }
+.choice-card-disabled:hover{ transform:none; border-color: var(--line); }
+@media (max-width: 640px){ .landing .choices{ grid-template-columns:1fr; } }
+@media (max-width: 880px) and (min-width:641px){ .choices-3{ grid-template-columns: 1fr 1fr; } }
+
+/* ============================================================
+   WIZARD (Survey Form)
+   ============================================================ */
+.wizard{ display:grid; grid-template-columns: 240px 1fr; gap: 28px; align-items:start; }
+@media (max-width: 880px){ .wizard{ grid-template-columns: 1fr; } }
+
+.rail{
+  position: sticky; top: 78px;
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-l);
+  padding: 18px 14px; box-shadow: var(--shadow-card);
+}
+.rail-title{ font-size:11px; text-transform:uppercase; letter-spacing:.6px; color: var(--ink-faint); padding: 4px 10px 10px; }
+.rail-step{
+  display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius: var(--radius-s);
+  color: var(--ink-muted); font-size:13px; cursor:pointer; border:none; background:transparent; width:100%; text-align:left;
+}
+.rail-step .num{
+  width:22px; height:22px; border-radius:50%; flex:none;
+  border:1.5px solid var(--line-strong); display:flex; align-items:center; justify-content:center;
+  font-family: var(--font-mono); font-size:11px; color: var(--ink-faint);
+}
+.rail-step.active{ background: var(--primary-tint); color: var(--primary-dark); font-weight:600; }
+.rail-step.active .num{ border-color: var(--primary); color: var(--primary); background:#fff; }
+.rail-step.done .num{ background: var(--success); border-color: var(--success); color:#fff; }
+.rail-step.done .num::after{ content:"✓"; }
+.rail-step.done .num{ font-size:0; }
+.rail-step.done .num::after{ font-size:12px; }
+
+/* Mobile horizontal progress */
+.progress-mobile{ display:none; }
+@media (max-width: 880px){
+  .rail{ display:none; }
+  .progress-mobile{
+    display:block; position: sticky; top: 64px; z-index:30;
+    background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-m);
+    padding: 10px 14px; margin-bottom:16px; box-shadow: var(--shadow-card);
+  }
+  .progress-mobile .bar{ height:6px; background: var(--surface-sunken); border-radius:99px; overflow:hidden; margin-top:8px; }
+  .progress-mobile .bar-fill{ height:100%; background: var(--primary); transition: width .25s ease; }
+  .progress-mobile .label{ font-size:12px; color: var(--ink-muted); display:flex; justify-content:space-between; }
+}
+
+.step-panel{
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-l);
+  padding: 28px 30px; box-shadow: var(--shadow-card);
+}
+.step-head{ margin-bottom:22px; padding-bottom:16px; border-bottom:1px solid var(--line); }
+.step-head .eyebrow{ font-size:11px; letter-spacing:.6px; text-transform:uppercase; color: var(--accent); font-weight:700; }
+.step-head h2{ font-size:23px; margin-top:4px; }
+.step-head .desc{ color: var(--ink-muted); font-size:13.5px; margin-top:6px; }
+
+.field{ margin-bottom: 20px; }
+.field label.q{ display:block; font-weight:600; font-size:14px; margin-bottom:8px; color: var(--ink); }
+.field label.q .req{ color: var(--danger); margin-left:3px; }
+.field .hint{ font-size:12px; color: var(--ink-faint); margin-top:5px; }
+.field input[type=text], .field input[type=number], .field input[type=tel],
+.field input[type=date], .field textarea, .field select{
+  width:100%; padding: 10px 12px; border:1.5px solid var(--line-strong); border-radius: var(--radius-s);
+  background: #fff; color: var(--ink); transition: border-color .15s ease;
+}
+.field input:focus, .field select:focus, .field textarea:focus{
+  outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-tint);
+}
+.field textarea{ min-height: 76px; resize: vertical; }
+.row2{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+.row3{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:16px; }
+.row4{ display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:16px; }
+@media (max-width: 640px){ .row2, .row3, .row4{ grid-template-columns:1fr; } }
+
+.options{ display:flex; flex-wrap:wrap; gap:8px; }
+.opt{
+  display:flex; align-items:center; gap:8px; padding: 9px 14px; border:1.5px solid var(--line-strong);
+  border-radius:999px; cursor:pointer; font-size:13.5px; color: var(--ink-muted); background:#fff;
+  user-select:none;
+}
+.opt input{ accent-color: var(--primary); }
+.opt.checked{ border-color: var(--primary); background: var(--primary-tint); color: var(--primary-dark); font-weight:600; }
+.opt-block{
+  display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border:1.5px solid var(--line-strong);
+  border-radius: var(--radius-m); cursor:pointer; margin-bottom:8px; background:#fff;
+}
+.opt-block.checked{ border-color: var(--primary); background: var(--primary-tint); }
+.opt-block input{ margin-top:2px; accent-color: var(--primary); }
+.opt-block .t{ font-size:14px; font-weight:600; }
+.opt-block .d{ font-size:12.5px; color: var(--ink-muted); margin-top:2px; }
+
+fieldset{ border:none; margin:0; padding:0; }
+
+/* Dynamic tables */
+.dtable{ width:100%; border-collapse: collapse; margin-top:6px; font-size:13.5px; }
+.dtable th{
+  text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.4px; color: var(--ink-faint);
+  padding: 8px 10px; border-bottom: 1.5px solid var(--line-strong); font-weight:700;
+}
+.dtable td{ padding: 6px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+.dtable input, .dtable select{ width:100%; padding:7px 9px; border:1px solid var(--line-strong); border-radius:6px; font-size:13px; }
+.dtable .rm{ background:none; border:none; color: var(--danger); cursor:pointer; font-size:16px; padding:4px 8px; }
+.dtable tfoot td{ font-weight:700; padding-top:10px; }
+.add-row-btn{
+  margin-top:8px; background: var(--surface-sunken); border:1.5px dashed var(--line-strong); color: var(--ink-muted);
+  padding:8px 14px; border-radius: var(--radius-s); cursor:pointer; font-size:13px; font-weight:600;
+}
+.add-row-btn:hover{ border-color: var(--primary); color: var(--primary); }
+
+/* Kelayakan calculator — signature element */
+.kifayah-gauge{
+  margin: 18px 0 26px; border-radius: var(--radius-l); overflow:hidden; border:1px solid var(--line-strong);
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+  color:#fff; padding: 20px 22px; position:relative;
+}
+.kifayah-gauge .eyebrow{ font-size:10.5px; text-transform:uppercase; letter-spacing:.6px; color: rgba(255,255,255,.65); font-weight:700; }
+.kifayah-gauge .figure{ font-family: var(--font-mono); font-size:30px; font-weight:600; margin:6px 0 4px; letter-spacing:-.5px; }
+.kifayah-gauge .figure .cur{ font-size:16px; opacity:.7; margin-right:4px; }
+.kifayah-gauge .sub{ font-size:12.5px; color: rgba(255,255,255,.8); }
+.kifayah-gauge .badge{
+  display:inline-flex; align-items:center; gap:6px; margin-top:12px; padding:6px 13px; border-radius:999px;
+  background: rgba(255,255,255,.14); font-size:12.5px; font-weight:600; border:1px solid rgba(255,255,255,.25);
+}
+.kifayah-gauge .badge .dot{ width:7px; height:7px; border-radius:50%; background: var(--accent); }
+.kifayah-gauge .thresholds{ display:flex; gap:14px; margin-top:16px; flex-wrap:wrap; font-size:11px; color: rgba(255,255,255,.55); font-family: var(--font-mono); }
+.kifayah-gauge .thresholds span.on{ color:#fff; font-weight:700; }
+
+.asnaf-note{
+  background: var(--accent-tint); border:1px solid #E9D7A6; border-radius: var(--radius-m);
+  padding:14px 16px; font-size:12.5px; color: #6B4E10; margin-top:10px; line-height:1.6;
+}
+.asnaf-note b{ display:block; margin-bottom:6px; color:#5A3E08; }
+.asnaf-note ul{ margin:0; padding-left:18px; }
+
+/* Step footer nav */
+.step-foot{ display:flex; justify-content:space-between; align-items:center; margin-top:28px; padding-top:20px; border-top:1px solid var(--line); }
+.btn{
+  padding: 11px 22px; border-radius: 999px; font-size:14px; font-weight:600; cursor:pointer; border:1.5px solid transparent;
+  display:inline-flex; align-items:center; gap:8px;
+}
+.btn-primary{ background: var(--primary); color:#fff; }
+.btn-primary:hover{ background: var(--primary-dark); }
+.btn-ghost{ background:transparent; border-color: var(--line-strong); color: var(--ink-muted); }
+.btn-ghost:hover{ border-color: var(--ink-muted); color: var(--ink); }
+.btn-accent{ background: var(--accent); color: #4A3608; }
+.btn-accent:hover{ filter: brightness(.95); }
+.btn[disabled]{ opacity:.45; cursor:not-allowed; }
+.btn-danger{ background: var(--danger-tint); color: var(--danger); }
+
+/* Success screen */
+.success-screen{ max-width:520px; margin: 70px auto; text-align:center; padding: 0 24px; }
+.success-screen .icon{
+  width:64px; height:64px; border-radius:50%; background: var(--success-tint); color: var(--success);
+  display:flex; align-items:center; justify-content:center; font-size:30px; margin:0 auto 18px;
+}
+.success-screen h2{ font-size:24px; margin-bottom:8px; }
+.success-screen p{ color: var(--ink-muted); font-size:14.5px; margin-bottom:26px; }
+.success-screen .ref{ font-family: var(--font-mono); background: var(--surface-sunken); padding:10px 14px; border-radius:8px; display:inline-block; margin-bottom:26px; font-size:13px; }
+
+/* ============================================================
+   AUTH (Admin Login)
+   ============================================================ */
+.auth-wrap{ max-width: 400px; margin: 70px auto; padding: 0 24px; }
+.auth-card{ background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-l); padding:32px; box-shadow: var(--shadow-card); }
+.auth-card .mark{
+  width:44px; height:44px; border-radius:10px; background: var(--primary); color:#fff; display:flex; align-items:center;
+  justify-content:center; font-family: var(--font-display); font-weight:700; margin-bottom:16px;
+}
+.auth-card h2{ font-size:21px; margin-bottom:6px; }
+.auth-card .sub{ color: var(--ink-muted); font-size:13.5px; margin-bottom:24px; }
+.error-box{ background: var(--danger-tint); color: var(--danger); padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:16px; }
+.field-tight{ margin-bottom:14px; }
+.field-tight label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; color: var(--ink-muted); }
+.field-tight input{ width:100%; padding:10px 12px; border:1.5px solid var(--line-strong); border-radius: var(--radius-s); }
+.field-tight input:focus{ outline:none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-tint); }
+
+/* ============================================================
+   ADMIN DASHBOARD
+   ============================================================ */
+.dash-head{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; gap:14px; }
+.dash-head h1{ font-size:26px; }
+.stat-row{ display:grid; grid-template-columns: repeat(4,1fr); gap:14px; margin-bottom:22px; }
+@media (max-width:760px){ .stat-row{ grid-template-columns: 1fr 1fr; } }
+.stat-card{ background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-m); padding:16px 18px; }
+.stat-card .n{ font-family: var(--font-mono); font-size:26px; font-weight:600; color: var(--primary-dark); }
+.stat-card .l{ font-size:12px; color: var(--ink-muted); margin-top:2px; }
+
+.toolbar{ display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+.toolbar input[type=search]{
+  flex:1; min-width:200px; padding:10px 14px; border:1.5px solid var(--line-strong); border-radius:999px; background:#fff;
+}
+.toolbar select{ padding:10px 14px; border:1.5px solid var(--line-strong); border-radius:999px; background:#fff; }
+
+.data-table-wrap{ background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-l); overflow:hidden; box-shadow: var(--shadow-card); }
+table.data-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+table.data-table th{
+  text-align:left; padding:12px 16px; background: var(--surface-sunken); font-size:11px; text-transform:uppercase;
+  letter-spacing:.4px; color: var(--ink-faint); border-bottom:1px solid var(--line);
+}
+table.data-table td{ padding:13px 16px; border-bottom:1px solid var(--line); }
+table.data-table tr:last-child td{ border-bottom:none; }
+table.data-table tr.rowlink{ cursor:pointer; }
+table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
+.badge{ display:inline-flex; align-items:center; gap:5px; padding:4px 11px; border-radius:999px; font-size:11.5px; font-weight:700; }
+.badge .dot{ width:6px; height:6px; border-radius:50%; }
+.badge-pending{ background: var(--warn-tint); color: var(--warn); }
+.badge-pending .dot{ background: var(--warn); }
+.badge-approved{ background: var(--success-tint); color: var(--success); }
+.badge-approved .dot{ background: var(--success); }
+.badge-rejected{ background: var(--danger-tint); color: var(--danger); }
+.badge-rejected .dot{ background: var(--danger); }
+.badge-attention{ background: var(--accent-tint); color:#6B4E10; }
+.badge-attention .dot{ background: var(--accent); }
+.empty-state{ text-align:center; padding: 60px 20px; color: var(--ink-muted); }
+.empty-state .big{ font-size:38px; margin-bottom:12px; }
+
+/* Detail drawer */
+.drawer-backdrop{ position:fixed; inset:0; background: rgba(20,26,24,.45); z-index:60; }
+.drawer{
+  position:fixed; top:0; right:0; bottom:0; width: min(640px, 100%); background: var(--bg); z-index:61;
+  overflow-y:auto; box-shadow: -8px 0 30px rgba(0,0,0,.2);
+}
+.drawer-head{ position:sticky; top:0; background: var(--primary-dark); color:#fff; padding:18px 24px; display:flex; justify-content:space-between; align-items:center; z-index:2; }
+.drawer-head h3{ color:#fff; font-size:18px; }
+.drawer-head button{ background: rgba(255,255,255,.15); border:none; color:#fff; width:30px; height:30px; border-radius:50%; cursor:pointer; font-size:15px; }
+.drawer-body{ padding: 22px 24px 60px; }
+.dsection{ background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-m); padding:16px 18px; margin-bottom:14px; }
+.dsection h4{ font-size:13px; text-transform:uppercase; letter-spacing:.4px; color: var(--accent); margin-bottom:12px; }
+.dgrid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px 18px; }
+.dgrid .k{ font-size:11.5px; color: var(--ink-faint); }
+.dgrid .v{ font-size:13.5px; font-weight:600; margin-top:1px; }
+@media (max-width:520px){ .dgrid{ grid-template-columns: 1fr; } }
+.admin-action-bar{ display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
+
+.setup-banner{
+  background: var(--warn-tint); border:1px solid #E9D08A; color:#6B4E10; padding:14px 18px; border-radius: var(--radius-m);
+  font-size:13px; margin-bottom:20px; line-height:1.6;
+}
+.setup-banner code{ background: rgba(0,0,0,.06); padding:1px 6px; border-radius:4px; font-family: var(--font-mono); font-size:12px; }
+
+.spinner{ width:18px; height:18px; border-radius:50%; border:2.5px solid rgba(255,255,255,.4); border-top-color:#fff; animation: spin .7s linear infinite; display:inline-block; }
+@keyframes spin{ to{ transform: rotate(360deg); } }
+.toast{
+  position:fixed; bottom:22px; left:50%; transform: translateX(-50%); background: var(--ink); color:#fff;
+  padding:12px 20px; border-radius:999px; font-size:13.5px; z-index:100; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+
+/* ============================================================
+   RAPID ASSESSMENT
+   ============================================================ */
+.rapid-head{ margin-bottom:18px; }
+.session-counter{
+  display:inline-flex; align-items:center; gap:7px; background: var(--success-tint); color: var(--success);
+  font-size:12.5px; font-weight:700; padding:6px 13px; border-radius:999px; margin-bottom:16px;
+}
+.program-bar{
+  display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;
+  background: var(--primary-tint); border:1px solid #CFE1D7; border-radius: var(--radius-l); padding:16px 20px; margin-bottom:20px;
+}
+.program-bar-label{ font-size:11px; text-transform:uppercase; letter-spacing:.4px; color: var(--primary-dark); font-weight:700; margin-bottom:8px; }
+.program-bar-grid{ display:flex; gap:22px; flex-wrap:wrap; }
+.program-chip .k{ font-size:11px; color: var(--ink-faint); }
+.program-chip .v{ font-size:13.5px; font-weight:600; color: var(--ink); margin-top:1px; }
+.rapid-section-head{ display:flex; align-items:center; gap:12px; margin: 28px 0 16px; }
+.rapid-section-head:first-child{ margin-top:0; }
+.rapid-section-letter{
+  width:30px; height:30px; border-radius:50%; background: var(--primary); color:#fff; flex:none;
+  display:flex; align-items:center; justify-content:center; font-family: var(--font-display); font-weight:700; font-size:14px;
+}
+.rapid-section-head h3{ font-size:16px; color: var(--primary-dark); }
+.sig-box{ background: var(--surface-sunken); border:1px solid var(--line); border-radius: var(--radius-m); padding:16px; }
+.sigpad-wrap{ margin-top:10px; }
+.sigpad-canvas{
+  display:block; width:100%; max-width:320px; height:140px; background:#fff; border:1.5px dashed var(--line-strong);
+  border-radius: var(--radius-s); touch-action:none; cursor: crosshair;
+}
+.sigpad-controls{ display:flex; justify-content:space-between; align-items:center; margin-top:6px; }
+.sigpad-hint{ font-size:11.5px; color: var(--ink-faint); }
+.sigpad-clear{ background:none; border:none; color: var(--danger); font-size:12px; cursor:pointer; font-weight:600; }
+.inline-btn{ background:none; border:none; color: var(--primary); font-size:12px; font-weight:600; cursor:pointer; padding:0; margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ================================================================
+   FIREBASE CONFIG
+   ----------------------------------------------------------------
+   Project: had-kifayah (sudah diisi di bawah).
+
+   Checklist yang MASIH perlu disiapkan di Firebase Console
+   (console.firebase.google.com > project "had-kifayah") sebelum
+   semua fitur (login admin, sesi Rapid Assessment, link mandiri,
+   notifikasi email) benar-benar berfungsi:
+
+   1. Authentication > Sign-in method > aktifkan "Email/Password"
+      (untuk Admin) DAN "Anonymous" (dipakai diam-diam oleh
+      Surveyor & calon peserta agar Firestore Rules bisa dibatasi
+      tanpa mewajibkan mereka login). Buat 1 akun admin manual di
+      Authentication > Users > Add user.
+   2. Firestore Database > buat database jika belum ada (mode
+      production, region terdekat mis. asia-southeast2).
+   3. Firestore > Rules, gunakan aturan berikut:
+
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /rapid_sessions/{sessionId} {
+            allow read, create: if request.auth != null; // termasuk anonymous
+          }
+          match /assessments/{docId} {
+            allow create, read, update: if request.auth != null; // termasuk anonymous
+            allow delete: if request.auth != null && request.auth.token.email != null; // khusus admin
+          }
+          match /app_settings/{docId} {
+            allow read: if request.auth != null;
+            allow write: if request.auth != null && request.auth.token.email != null; // khusus admin
+          }
+          match /mail/{docId} {
+            allow create: if request.auth != null;
+            allow read, update, delete: if false; // hanya ekstensi Trigger Email yang mengelola
+          }
+        }
+      }
+
+   4. (Opsional, untuk notifikasi email ke Admin) Firebase Console >
+      Extensions > pasang ekstensi resmi "Trigger Email from
+      Firestore" (Firebase/firestore-send-email). Saat instalasi,
+      set nama koleksi ke "mail" dan isi kredensial SMTP pengirim.
+      Perlu paket Blaze (pay-as-you-go), namun volume rendah biasanya
+      tetap gratis. Lalu buka Dashboard Admin > "⚙️ Pengaturan
+      Notifikasi" untuk mengisi alamat email tujuan.
+================================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyB2Nha_gJ2DF4h360mPSAvnaf0jwS_KWNo",
+  authDomain: "had-kifayah.firebaseapp.com",
+  projectId: "had-kifayah",
+  storageBucket: "had-kifayah.firebasestorage.app",
+  messagingSenderId: "594684141648",
+  appId: "1:594684141648:web:03b63181ba28aeb4843155",
+  measurementId: "G-TLTRKYBVJK"
+};
+
+let FIREBASE_NOT_CONFIGURED = firebaseConfig.apiKey.startsWith("GANTI");
+let auth = null, db = null;
+if(!FIREBASE_NOT_CONFIGURED){
+  try{
+    if(typeof firebase === "undefined") throw new Error("SDK Firebase gagal dimuat (periksa koneksi internet / pemblokir iklan).");
+    firebase.initializeApp(firebaseConfig);
+    auth = firebase.auth();
+    db = firebase.firestore();
+    try{ firebase.analytics(); } catch(e){ /* analytics opsional, abaikan jika gagal (mis. diblokir adblock) */ }
+  } catch(e){
+    console.error("Inisialisasi Firebase gagal, aplikasi berjalan dalam mode pratinjau (data tidak tersimpan):", e);
+    FIREBASE_NOT_CONFIGURED = true;
+    auth = null; db = null;
+  }
+}
+/* Satu koleksi Firestore untuk seluruh jenis form (dibedakan lewat field
+   "jenis_form"): full_assessment, rapid_assessment, community_development.
+   Dashboard admin membaca semuanya dan memfilter per jenis lewat tab. */
+const COLLECTION = "assessments";
+
+/* ================================================================
+   UTIL
+   ================================================================ */
+const $ = (sel, el=document) => el.querySelector(sel);
+const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
+const el = (tag, attrs={}, ...children) => {
+  const n = document.createElement(tag);
+  for(const k in attrs){
+    if(attrs[k] == null){ continue; } // jangan setAttribute(k, null) -> browser membacanya sbg string "null"
+    if(k === "class") n.className = attrs[k];
+    else if(k === "html") n.innerHTML = attrs[k];
+    else if(k.startsWith("on")) n.addEventListener(k.slice(2), attrs[k]);
+    else n.setAttribute(k, attrs[k]);
+  }
+  children.flat().forEach(c=>{
+    if(c==null) return;
+    n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  });
+  return n;
+};
+const fmtRupiah = (n) => "Rp " + (Math.round(n||0)).toLocaleString("id-ID");
+const uid = () => Math.random().toString(36).slice(2,9);
+/* Firestore melempar pesan generik "Missing or insufficient permissions"
+   untuk hampir semua kegagalan Security Rules — kita perjelas dengan
+   petunjuk perbaikan langsung di pesan errornya. */
+function friendlyFirestoreError(err){
+  const raw = (err && err.message) || String(err);
+  if(err && (err.code === "permission-denied" || /permission/i.test(raw))){
+    return "Izin ditolak oleh Firestore. Periksa 2 hal: (1) Authentication → Sign-in method → \"Anonymous\" harus AKTIF, (2) Firestore → Rules harus sudah dipublikasikan sesuai contoh di komentar awal index.html (cari \"FIREBASE CONFIG\"). Pesan asli: " + raw;
+  }
+  return raw;
+}
+function toast(msg){
+  const t = el("div",{class:"toast"}, msg);
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 3200);
+}
+
+/* ================================================================
+   ROUTER
+   ================================================================ */
+function route(){
+  const hash = location.hash.replace("#/","").split("?")[0] || "";
+  const app = $("#app");
+  app.innerHTML = "";
+  if(hash === "survey" || hash === "survey/full"){
+    renderSurveyPage(app);
+  } else if(hash === "survey/rapid"){
+    renderRapidPage(app);
+  } else if(hash.startsWith("isi/")){
+    renderSelfFillPage(app, hash.slice(4));
+  } else if(hash === "admin"){
+    renderAdminPage(app);
+  } else {
+    renderLanding(app);
+  }
+  window.scrollTo(0,0);
+}
+window.addEventListener("hashchange", route);
+
+/* ================================================================
+   LANDING
+   ================================================================ */
+function renderLanding(app){
+  app.appendChild(el("div",{class:"landing"},
+    el("div",{class:"eyebrow", style:"color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;"}, "Puskas BAZNAS · Had Kifayah"),
+    el("h1",{}, "Aplikasi Pooling Data Had Kifayah"),
+    el("p",{class:"lede"}, "Platform assessment kelayakan calon penerima manfaat dana zakat untuk surveyor di lapangan dan admin program."),
+    el("div",{class:"choices choices-3"},
+      el("a",{class:"choice-card", href:"#/survey/full"},
+        el("div",{class:"eyebrow"}, "Surveyor · Tanpa Login"),
+        el("h3",{}, "Full Assessment"),
+        el("p",{}, "Survei lengkap & perorangan terhadap calon penerima manfaat secara langsung di lapangan.")
+      ),
+      el("a",{class:"choice-card", href:"#/survey/rapid"},
+        el("div",{class:"eyebrow"}, "Surveyor · Tanpa Login"),
+        el("h3",{}, "Rapid Assessment"),
+        el("p",{}, "Versi ringkas untuk layanan cepat/mendesak secara massal — ambulans, khitanan massal, bantuan sekolah, sembako, dsb.")
+      ),
+      el("div",{class:"choice-card choice-card-disabled"},
+        el("div",{class:"eyebrow"}, "Segera Hadir"),
+        el("h3",{}, "Community Development"),
+        el("p",{}, "Assessment tidak langsung untuk bantuan infrastruktur & fasilitas umum bersifat komunal.")
+      ),
+    ),
+    el("div",{style:"margin-top:28px;"},
+      el("a",{href:"#/admin", class:"btn btn-ghost"}, "Login Admin →")
+    )
+  ));
+}
+
+/* ================================================================
+   ASNAF / KELAYAKAN LOGIC (mengikuti catatan pada form asli)
+   ================================================================ */
+const THRESHOLDS = [
+  { max: 351957, key: "extreme", label: "Extreme Poor" },
+  { max: 609160, key: "gk", label: "Batas Garis Kemiskinan (GK)" },
+  { max: 979989, key: "hk", label: "Batas Had Kifayah (HK) — prioritas asnaf Miskin" },
+  { max: 1500000, key: "t1", label: "Rp 979.989 s.d Rp 1,5 juta" },
+  { max: 3400000, key: "t2", label: "Rp 1,5 juta s.d Rp 3,4 juta" },
+  { max: 6700000, key: "t3", label: "Rp 3,4 juta s.d Rp 6,7 juta" },
+  { max: Infinity, key: "t4", label: "> Rp 6,8 juta" },
+];
+function classifyPerCapita(v){
+  for(const t of THRESHOLDS){ if(v <= t.max) return t; }
+  return THRESHOLDS[THRESHOLDS.length-1];
+}
+
+/* ================================================================
+   FORM SCHEMA — Full Assessment
+   Setiap step berisi field data-driven (radio/checkbox/text/dll).
+   Tabel dinamis (penghasilan, pengeluaran, hutang) ditangani terpisah.
+   ================================================================ */
+const RADIO = (id, label, options, opts={}) => ({ id, label, type:"radio", options, ...opts });
+const CHECK = (id, label, options, opts={}) => ({ id, label, type:"checkbox", options, ...opts });
+const TEXT = (id, label, opts={}) => ({ id, label, type:"text", ...opts });
+
+const STEPS = [
+  {
+    key: "penerimaan",
+    title: "Data Diterima & Pelaksanaan Survey",
+    desc: "Informasi administratif penerimaan berkas dan pelaksanaan kunjungan survei.",
+    fields: [
+      { id:"tgl_diterima", label:"Hari, Tanggal Diterima Lembaga", type:"date" },
+      { id:"petugas_menerima", label:"Nama Petugas Menerima", type:"text" },
+      { id:"tgl_survey", label:"Hari / Tanggal Survey", type:"date", required:true },
+      { id:"nama_surveyor", label:"Nama Surveyor", type:"text", required:true },
+      { id:"phone_surveyor", label:"No. Telepon Surveyor", type:"tel", required:true },
+    ]
+  },
+  {
+    key: "identitas",
+    title: "Identitas Pengaju",
+    desc: "Data diri calon penerima manfaat sesuai KTP.",
+    fields: [
+      { id:"nik", label:"NIK Pengaju", type:"text", required:true, hint:"Sesuai KTP, 16 digit", maxlength:16 },
+      { id:"nama_pengaju", label:"Nama Pengaju", type:"text", required:true },
+      { id:"nama_panggilan", label:"Nama Panggilan", type:"text" },
+      { id:"alamat_jalan", label:"Alamat (Jl / Kp)", type:"text" },
+      { id:"alamat_rt", label:"RT", type:"text", short:true },
+      { id:"alamat_rw", label:"RW", type:"text", short:true },
+      { id:"alamat_no", label:"No. Rumah", type:"text", short:true },
+      { id:"alamat_kel", label:"Kelurahan", type:"text" },
+      { id:"alamat_kec", label:"Kecamatan", type:"text" },
+      { id:"alamat_kota", label:"Kota / Kabupaten", type:"text" },
+      { id:"alamat_prov", label:"Provinsi", type:"text" },
+      RADIO("jenis_kelamin","Jenis Kelamin",["Laki-Laki","Perempuan"], {required:true}),
+      { id:"usia", label:"Usia (Tahun)", type:"number", required:true },
+      { id:"telp", label:"Nomor Telepon", type:"tel" },
+      { id:"agama", label:"Agama", type:"text" },
+      { id:"is_muallaf", label:"Muallaf?", type:"checkbox-single" },
+      { id:"muallaf_tahun", label:"Muallaf Sejak Tahun", type:"number", showIf:"is_muallaf" },
+      RADIO("status_nikah","Status Pernikahan",["Lajang","Menikah","Janda","Duda"], {required:true}),
+    ]
+  },
+  {
+    key: "penghasilan",
+    title: "Penghasilan Keluarga",
+    desc: "Lengkapi seluruh anggota keluarga yang berpenghasilan, termasuk kepala keluarga. Pendapatan per kapita akan dihitung otomatis.",
+    fields: [
+      { id:"jumlah_tanggungan", label:"Jumlah Tanggungan Keluarga (Orang)", type:"number", required:true },
+    ],
+    table: "penghasilan"
+  },
+  {
+    key: "pengeluaran",
+    title: "Pengeluaran & Hutang Piutang",
+    desc: "Rata-rata pengeluaran rumah tangga per bulan dan rincian hutang yang masih berjalan.",
+    tables: ["pengeluaran","hutang"]
+  },
+  {
+    key: "kepala_keluarga",
+    title: "Kondisi Kepala Keluarga",
+    desc: "Pendidikan, kondisi kesehatan, pekerjaan, dan status mustahik dalam keluarga.",
+    fields: [
+      RADIO("pendidikan_kepala","Pendidikan Terakhir Kepala Keluarga",
+        ["Tidak Sekolah / SD","SMP / Sederajat","SMA / Sederajat","Perguruan Tinggi"]),
+      RADIO("kondisi_kepala","Kondisi Kepala Keluarga",
+        ["Sakit menahun","Sakit-sakitan","Manula","Sehat bekerja","Sehat & tidak bekerja"]),
+      RADIO("pekerjaan_kepala","Pekerjaan Kepala Keluarga Pengaju",
+        ["Menganggur","Buruh Serabutan","Karyawan Rendahan","Pedagang Kecil"]),
+      RADIO("status_mustahik","Status Mustahik dalam Keluarga",
+        ["Suami","Isteri","Anak","Lainnya"]),
+      { id:"status_mustahik_lainnya", label:"Sebutkan (jika \"Lainnya\")", type:"text", showIf:"status_mustahik", showIfVal:"Lainnya" },
+    ]
+  },
+  {
+    key: "konsumsi",
+    title: "Pola Konsumsi",
+    desc: "Kebiasaan konsumsi harian sebagai indikator daya beli keluarga.",
+    fields: [
+      RADIO("konsumsi_pokok","Intensitas Mengonsumsi Makanan Pokok",["1 kali sehari","2 s.d 3 kali sehari"]),
+      RADIO("beli_pakaian","Intensitas Pembelian Pakaian Baru",["1 tahun sekali","6 bulan sekali","3 bulan sekali","2 bulan sekali"]),
+      RADIO("konsumsi_daging","Intensitas Mengonsumsi Daging",["1 bulan sekali","3 minggu sekali","2 minggu sekali","Seminggu sekali"]),
+    ]
+  },
+  {
+    key: "rumah",
+    title: "Kondisi Rumah Tinggal",
+    desc: "Kondisi fisik dan fasilitas tempat tinggal.",
+    fields: [
+      RADIO("kepemilikan_rumah","Kepemilikan Rumah",["Mengontrak","Menumpang","Milik Sendiri"]),
+      RADIO("luas_rumah","Luas Rumah dan Lantai",["Kurang dari 36 M²","36 M² s.d 60 M²","> 60 M²"]),
+      RADIO("dinding","Dinding Rumah",["Bilik bambu / triplek / seng","Semi permanen","Tembok disemen"]),
+      RADIO("lantai","Lantai",["Tanah","Panggung","Semen","Keramik"]),
+      RADIO("atap","Atap",["Seng","Asbes / Genteng","Kombinasi genteng & baja ringan"]),
+      RADIO("dapur","Dapur",["Tungku (kayu bakar)","Kompor minyak / gas 3 Kg","Kompor gas > 3 Kg"]),
+      RADIO("kursi","Kursi",["Lesehan / balai bambu","Kursi kayu / plastik","Sofa"]),
+      RADIO("sumber_air","Sumber Air",["Bersama","PDAM","Milik sendiri"]),
+      RADIO("mck","Tempat Buang Air (MCK)",["Tidak ada","Bersama","Milik sendiri"]),
+      RADIO("penerangan","Penerangan",["Tidak ada listrik / bersama","450 watt","900 watt","> 900 watt"]),
+      RADIO("lokasi_rumah","Lokasi Rumah",["Bantaran kali","Daerah kumuh","Perkampungan biasa","Komplek perumahan"]),
+      RADIO("jarak_puskesmas","Jarak Tempuh menuju Puskesmas",["< 1 Km","1 s.d 5 Km","6 s.d 10 Km","> 10 Km"]),
+    ]
+  },
+  {
+    key: "barang_keluarga",
+    title: "Kepemilikan Barang & Data Keluarga",
+    desc: "Aset yang dimiliki serta kondisi anggota keluarga dalam satu rumah.",
+    fields: [
+      RADIO("kendaraan","Kendaraan",["Tidak ada","Sepeda","Sepeda motor kredit","Sepeda motor lunas","Mobil"]),
+      RADIO("elektronik","Elektronik",["TV & tape recorder","TV, tape recorder & kulkas","TV, tape recorder, kulkas & mesin cuci"]),
+      RADIO("simpanan_berharga","Simpanan Barang Berharga (mudah dijual, min. Rp 500.000)",["HP","HP & Emas","HP, Emas & Motor"]),
+      RADIO("anak_sekolah","Jumlah Anak yang Masih Sekolah",["Tidak ada","1 Anak","2 Anak","3 Anak","4 Anak"]),
+      RADIO("putus_sekolah","Ada yang Putus Sekolah",["Tidak ada","Ada"]),
+      RADIO("ada_hamil","Keluarga dalam Satu Rumah Ada yang Hamil",["Tidak ada","Ada"]),
+      RADIO("batita","Memiliki BATITA (bayi di bawah tiga tahun)",["Tidak ada","Ya"]),
+      RADIO("ada_lansia","Keluarga dalam Satu Rumah Ada Lansia",["Tidak ada","Ada"]),
+    ]
+  },
+  {
+    key: "perilaku",
+    title: "Aspek Perilaku & Ibadah",
+    desc: "Menjadi bahan pertimbangan tambahan dalam menentukan prioritas kelayakan asnaf.",
+    fields: [
+      RADIO("merokok","Kebiasaan Merokok / Vape",["Tidak","Ya"]),
+      RADIO("perilaku_negatif","Perilaku Negatif Anggota Keluarga (Judi, Miras, Zina, Narkoba)",["Tidak pernah","Kadang-kadang","Pernah"]),
+      RADIO("pola_sholat","Pola Sholat pada Anggota Keluarga",["Berjamaah 5 waktu","Teratur tapi tidak berjamaah","Jarang sholat","Tidak pernah"]),
+      RADIO("pengajian","Rajin Mengikuti Pengajian",["Menjadi pembicara","Menjadi pengurus","Aktif jadi anggota","Jarang hadir"]),
+      RADIO("jilbab","Istri dan Anak Remaja Putri Mengenakan Jilbab",["Ya selalu","Ya, jika keluar rumah","Kadang-kadang","Tidak pernah"]),
+      RADIO("sholat_5waktu","Pelaksanaan Sholat 5 Waktu",["Ya","Kadang-kadang","Tidak"]),
+      RADIO("menutup_aurat","Menutup Aurat Ketika Berada di Luar Rumah",["Ya, selalu","Kadang-kadang","Tidak"]),
+    ]
+  },
+  {
+    key: "resume",
+    title: "Resume & Rekomendasi Surveyor",
+    desc: "Kesimpulan hasil assessment dan rekomendasi awal dari surveyor di lapangan.",
+    fields: [
+      { id:"jenis_permohonan", label:"Jenis Permohonan", type:"text", hint:"Contoh: Bantuan modal usaha, biaya berobat, dll." },
+      CHECK("asnaf","Panduan Asnaf (bisa lebih dari satu)",
+        ["Fakir","Miskin","Muallaf","Gharim","Ibnu Sabil","Fisabilillah"]),
+      RADIO("kelayakan","Kelayakan Permohonan",
+        ["Layak dibantu","Perlu perhatian khusus","Tidak layak dibantu"], {required:true}),
+      { id:"alasan", label:"Alasan", type:"textarea" },
+      { id:"catatan_surveyor", label:"Catatan Penting Surveyor", type:"textarea" },
+      CHECK("bentuk_bantuan","Bentuk Bantuan",["Uang","Barang","Peningkatan Skill / Kapasitas"]),
+      CHECK("sifat_bantuan","Sifat Bantuan",["Rutin","Insidental","Pemberdayaan"]),
+      { id:"rekomendasi_tgl", label:"Tanggal Rekomendasi", type:"date" },
+      { id:"no_benturan_kepentingan", label:"Surveyor menyatakan tidak memiliki benturan kepentingan dengan calon penerima manfaat", type:"checkbox-single", required:true },
+    ]
+  },
+];
+
+const ASNAF_NOTES = `
+<b>Panduan Penentuan Asnaf</b>
+<ul>
+<li><b>Fakir</b> — tidak ada pekerjaan dan tidak ada pendapatan.</li>
+<li><b>Miskin</b> — pendapatan per kapita per bulan &lt; Rp 979.989 (± Rp 4.615.749 per keluarga/bulan).</li>
+<li><b>Muallaf</b> — menjadi mualaf kurang dari 2 tahun.</li>
+<li><b>Gharim</b> — jumlah hutang konsumtif lebih besar dari total pendapatan ditambah simpanan.</li>
+<li><b>Ibnu Sabil</b> — kehabisan bekal dalam perjalanan, bukan dalam rangka maksiat.</li>
+<li><b>Fisabilillah</b> — pelajar / guru / dai yang mempelajari Islam.</li>
+</ul>`;
+
+/* ================================================================
+   STATE
+   ================================================================ */
+let formState = {};
+let currentStepIndex = 0;
+let dynTables = { penghasilan: [], pengeluaran: [], hutang: [] };
+
+function resetFormState(){
+  formState = {};
+  currentStepIndex = 0;
+  dynTables = {
+    penghasilan: [ blankRow("penghasilan") ],
+    pengeluaran: [
+      { id:uid(), jenis:"Kebutuhan Pokok/Makan", locked:true, jumlah:"" },
+      { id:uid(), jenis:"Listrik & Air", locked:true, jumlah:"" },
+      { id:uid(), jenis:"Transportasi", locked:true, jumlah:"" },
+      { id:uid(), jenis:"Pendidikan", locked:true, jumlah:"" },
+      { id:uid(), jenis:"Kesehatan", locked:true, jumlah:"" },
+      { id:uid(), jenis:"Lain-lain", locked:true, jumlah:"" },
+    ],
+    hutang: []
+  };
+}
+function blankRow(kind){
+  if(kind === "penghasilan") return { id:uid(), nama:"", hubungan:"", pekerjaan:"", jumlah:"" };
+  if(kind === "hutang") return { id:uid(), pemberi:"", keperluan:"", jatuh_tempo:"", status:"", total:"", dibayar:"" };
+  return { id:uid(), jenis:"", jumlah:"" };
+}
+
+/* ================================================================
+   SURVEY PAGE
+   ================================================================ */
+function renderSurveyPage(app){
+  resetFormState();
+  ensureAnonAuth();
+  const wrap = el("div",{});
+  wrap.appendChild(topbar(false));
+  const shell = el("div",{class:"shell"});
+  const body = el("div",{id:"survey-body"});
+  shell.appendChild(body);
+  wrap.appendChild(shell);
+  app.appendChild(wrap);
+  renderWizard(body);
+}
+
+function topbar(isAdmin){
+  const nav = el("nav",{},
+    el("a",{href:"#/"}, "Beranda"),
+    isAdmin===true ? el("button",{onclick:doLogout}, "Keluar") :
+    isAdmin===false ? el("a",{href:"#/admin"}, "Login Admin") : null
+  );
+  return el("div",{class:"topbar"},
+    el("div",{class:"brand"},
+      el("div",{class:"mark"}, "HK"),
+      el("div",{},
+        el("div",{class:"name"}, "Had Kifayah"),
+        el("div",{class:"sub"}, "Puskas BAZNAS"),
+      )
+    ),
+    nav
+  );
+}
+
+function renderWizard(body){
+  body.innerHTML = "";
+  if(currentStepIndex >= STEPS.length){
+    renderSuccessScreen(body);
+    return;
+  }
+  const step = STEPS[currentStepIndex];
+
+  const railEl = el("div",{class:"rail"},
+    el("div",{class:"rail-title"}, "Tahapan Formulir"),
+    ...STEPS.map((s,i)=> el("button",{
+        class:"rail-step" + (i===currentStepIndex?" active":"") + (i<currentStepIndex?" done":""),
+        onclick:()=>{ if(i<currentStepIndex){ currentStepIndex=i; renderWizard(body); } }
+      },
+      el("span",{class:"num"}, String(i+1).padStart(2,"0")),
+      el("span",{}, s.title)
+    ))
+  );
+
+  const progressMobile = el("div",{class:"progress-mobile"},
+    el("div",{class:"label"}, el("span",{}, `Langkah ${currentStepIndex+1} dari ${STEPS.length}`), el("span",{}, step.title)),
+    el("div",{class:"bar"}, el("div",{class:"bar-fill", style:`width:${((currentStepIndex)/(STEPS.length-1))*100}%`}))
+  );
+
+  const panel = el("div",{class:"step-panel"},
+    el("div",{class:"step-head"},
+      el("div",{class:"eyebrow"}, `Langkah ${currentStepIndex+1} dari ${STEPS.length}`),
+      el("h2",{}, step.title),
+      el("div",{class:"desc"}, step.desc)
+    )
+  );
+
+  const form = el("div",{class:"step-form"});
+  panel.appendChild(form);
+
+  // Regular fields
+  (step.fields||[]).forEach(f => form.appendChild(renderField(f)));
+
+  // Dynamic tables
+  if(step.table) form.appendChild(renderDynTable(step.table));
+  if(step.tables) step.tables.forEach(t => form.appendChild(renderDynTable(t)));
+
+  // Kelayakan gauge shown right after penghasilan step & pada step pengeluaran (karena hutang mempengaruhi Gharim)
+  if(step.key === "penghasilan" || step.key === "pengeluaran"){
+    form.appendChild(renderKifayahGauge());
+  }
+
+  const isLast = currentStepIndex === STEPS.length - 1;
+  const foot = el("div",{class:"step-foot"},
+    currentStepIndex===0
+      ? el("a",{href:"#/", class:"btn btn-ghost"}, "← Batal")
+      : el("button",{class:"btn btn-ghost", onclick:()=>{ currentStepIndex--; renderWizard(body); }}, "← Sebelumnya"),
+    isLast
+      ? el("button",{class:"btn btn-primary", id:"submit-btn", onclick:()=>submitAssessment(body)}, "Kirim Formulir")
+      : el("button",{class:"btn btn-primary", onclick:()=>{
+          if(validateStep(step)){ currentStepIndex++; renderWizard(body); window.scrollTo(0,0); }
+        }}, "Selanjutnya →")
+  );
+  panel.appendChild(foot);
+
+  body.appendChild(progressMobile);
+  body.appendChild(el("div",{class:"wizard"}, railEl, panel));
+}
+
+function validateStep(step){
+  let ok = true;
+  (step.fields||[]).forEach(f=>{
+    if(f.required){
+      const val = formState[f.id];
+      if(val == null || val === "" || (Array.isArray(val) && val.length===0)){
+        ok = false;
+        toast(`Mohon lengkapi: ${f.label}`);
+      }
+    }
+  });
+  return ok;
+}
+
+function shouldShow(f){
+  if(!f.showIf) return true;
+  const v = formState[f.showIf];
+  if(f.showIfVal) return v === f.showIfVal;
+  return !!v;
+}
+
+function renderField(f){
+  if(!shouldShow(f)) return el("div",{});
+  const wrap = el("div",{class:"field", "data-field-id":f.id});
+
+  if(f.type === "checkbox-single"){
+    const checked = !!formState[f.id];
+    const optBlock = el("label",{class:"opt-block" + (checked?" checked":"")},
+      el("input",{type:"checkbox", checked: checked?"checked":null, onchange:(e)=>{
+        formState[f.id] = e.target.checked;
+        // re-render to reveal/hide dependent fields
+        const body = $("#survey-body"); renderWizard(body);
+      }}),
+      el("div",{}, el("div",{class:"t"}, f.label))
+    );
+    wrap.appendChild(optBlock);
+    if(f.required) wrap.querySelector(".t").appendChild(el("span",{class:"req"}, " *"));
+    return wrap;
+  }
+
+  const labelEl = el("label",{class:"q"}, f.label, f.required?el("span",{class:"req"},"*"):null);
+  wrap.appendChild(labelEl);
+
+  if(f.type === "radio"){
+    const options = el("div",{class:"options"});
+    f.options.forEach(opt=>{
+      const checked = formState[f.id] === opt;
+      const lab = el("label",{class:"opt"+(checked?" checked":"")},
+        el("input",{type:"radio", name:f.id, checked: checked?"checked":null, onchange:()=>{
+          formState[f.id] = opt;
+          const body = $("#survey-body"); renderWizard(body);
+        }}),
+        el("span",{}, opt)
+      );
+      options.appendChild(lab);
+    });
+    wrap.appendChild(options);
+  } else if(f.type === "checkbox"){
+    const arr = formState[f.id] || [];
+    const options = el("div",{class:"options"});
+    f.options.forEach(opt=>{
+      const checked = arr.includes(opt);
+      const lab = el("label",{class:"opt"+(checked?" checked":"")},
+        el("input",{type:"checkbox", checked: checked?"checked":null, onchange:(e)=>{
+          let a = formState[f.id] || [];
+          if(e.target.checked) a = [...a, opt]; else a = a.filter(x=>x!==opt);
+          formState[f.id] = a;
+          const body = $("#survey-body"); renderWizard(body);
+        }}),
+        el("span",{}, opt)
+      );
+      options.appendChild(lab);
+    });
+    wrap.appendChild(options);
+    if(f.id === "asnaf") wrap.appendChild(el("div",{class:"asnaf-note", html: ASNAF_NOTES}));
+  } else if(f.type === "textarea"){
+    wrap.appendChild(el("textarea",{oninput:(e)=>formState[f.id]=e.target.value}, formState[f.id]||""));
+  } else {
+    const inputAttrs = { type: f.type, value: formState[f.id]||"", oninput:(e)=>formState[f.id]=e.target.value };
+    if(f.maxlength) inputAttrs.maxlength = f.maxlength;
+    wrap.appendChild(el("input", inputAttrs));
+  }
+  if(f.hint) wrap.appendChild(el("div",{class:"hint"}, f.hint));
+  return wrap;
+}
+
+/* ---------------- Dynamic tables ---------------- */
+function calcTableTotal(kind){
+  if(kind === "penghasilan") return dynTables.penghasilan.reduce((s,r)=>s+(parseFloat(r.jumlah)||0),0);
+  if(kind === "pengeluaran") return dynTables.pengeluaran.reduce((s,r)=>s+(parseFloat(r.jumlah)||0),0);
+  if(kind === "hutang") return {
+    total: dynTables.hutang.reduce((s,r)=>s+(parseFloat(r.total)||0),0),
+    dibayar: dynTables.hutang.reduce((s,r)=>s+(parseFloat(r.dibayar)||0),0),
+  };
+  return 0;
+}
+
+function renderDynTable(kind){
+  const wrap = el("div",{class:"field"});
+  const titleMap = {
+    penghasilan: "Rincian Penghasilan Keluarga",
+    pengeluaran: "Rincian Pengeluaran Rumah Tangga per Bulan",
+    hutang: "Rincian Hutang – Piutang"
+  };
+  wrap.appendChild(el("label",{class:"q"}, titleMap[kind]));
+
+  const table = el("table",{class:"dtable"});
+  let thead, tbody, tfoot;
+
+  if(kind === "penghasilan"){
+    thead = el("thead",{}, el("tr",{},
+      el("th",{},"No"), el("th",{},"Nama"), el("th",{},"Hubungan Keluarga"), el("th",{},"Pekerjaan"),
+      el("th",{},"Penghasilan / Bulan"), el("th",{})
+    ));
+    tbody = el("tbody",{});
+    dynTables.penghasilan.forEach((row,i)=>{
+      tbody.appendChild(el("tr",{},
+        el("td",{}, String(i+1)),
+        el("td",{}, el("input",{type:"text", value:row.nama, oninput:(e)=>{row.nama=e.target.value;}})),
+        el("td",{}, el("input",{type:"text", value:row.hubungan, oninput:(e)=>{row.hubungan=e.target.value;}})),
+        el("td",{}, el("input",{type:"text", value:row.pekerjaan, oninput:(e)=>{row.pekerjaan=e.target.value;}})),
+        el("td",{}, el("input",{type:"number", value:row.jumlah, oninput:(e)=>{row.jumlah=e.target.value; refreshGauge();}})),
+        el("td",{}, dynTables.penghasilan.length>1 ? el("button",{class:"rm", onclick:()=>{
+          dynTables.penghasilan = dynTables.penghasilan.filter(r=>r.id!==row.id);
+          rerenderCurrentStep();
+        }}, "✕") : null)
+      ));
+    });
+    tfoot = el("tfoot",{}, el("tr",{}, el("td",{colspan:4},"TOTAL"), el("td",{id:"total-penghasilan"}, fmtRupiah(calcTableTotal("penghasilan"))), el("td",{})));
+  }
+
+  if(kind === "pengeluaran"){
+    thead = el("thead",{}, el("tr",{}, el("th",{},"No"), el("th",{},"Jenis Pengeluaran"), el("th",{},"Rata-rata / Bulan"), el("th",{})));
+    tbody = el("tbody",{});
+    dynTables.pengeluaran.forEach((row,i)=>{
+      tbody.appendChild(el("tr",{},
+        el("td",{}, String(i+1)),
+        el("td",{}, row.locked ? row.jenis : el("input",{type:"text", value:row.jenis, oninput:(e)=>{row.jenis=e.target.value;}})),
+        el("td",{}, el("input",{type:"number", value:row.jumlah, oninput:(e)=>{row.jumlah=e.target.value;}})),
+        el("td",{}, !row.locked ? el("button",{class:"rm", onclick:()=>{
+          dynTables.pengeluaran = dynTables.pengeluaran.filter(r=>r.id!==row.id);
+          rerenderCurrentStep();
+        }}, "✕") : null)
+      ));
+    });
+    tfoot = el("tfoot",{}, el("tr",{}, el("td",{colspan:2},"TOTAL"), el("td",{}, fmtRupiah(calcTableTotal("pengeluaran"))), el("td",{})));
+  }
+
+  if(kind === "hutang"){
+    thead = el("thead",{}, el("tr",{},
+      el("th",{},"No"), el("th",{},"Pemberi Hutang"), el("th",{},"Untuk Keperluan"), el("th",{},"Jatuh Tempo"),
+      el("th",{},"Status Pelunasan"), el("th",{},"Total Hutang"), el("th",{},"Sudah Dibayar"), el("th",{},"Sisa Hutang"), el("th",{})
+    ));
+    tbody = el("tbody",{});
+    dynTables.hutang.forEach((row,i)=>{
+      const sisa = (parseFloat(row.total)||0) - (parseFloat(row.dibayar)||0);
+      tbody.appendChild(el("tr",{},
+        el("td",{}, String(i+1)),
+        el("td",{}, el("input",{type:"text", value:row.pemberi, oninput:(e)=>{row.pemberi=e.target.value;}})),
+        el("td",{}, el("input",{type:"text", value:row.keperluan, oninput:(e)=>{row.keperluan=e.target.value;}})),
+        el("td",{}, el("input",{type:"date", value:row.jatuh_tempo, oninput:(e)=>{row.jatuh_tempo=e.target.value;}})),
+        el("td",{}, el("input",{type:"text", value:row.status, oninput:(e)=>{row.status=e.target.value;}})),
+        el("td",{}, el("input",{type:"number", value:row.total, oninput:(e)=>{row.total=e.target.value; refreshGauge(); rerenderCurrentStep();}})),
+        el("td",{}, el("input",{type:"number", value:row.dibayar, oninput:(e)=>{row.dibayar=e.target.value; rerenderCurrentStep();}})),
+        el("td",{class:"mono"}, fmtRupiah(sisa)),
+        el("td",{}, el("button",{class:"rm", onclick:()=>{
+          dynTables.hutang = dynTables.hutang.filter(r=>r.id!==row.id);
+          rerenderCurrentStep();
+        }}, "✕"))
+      ));
+    });
+    const totals = calcTableTotal("hutang");
+    tfoot = el("tfoot",{}, el("tr",{},
+      el("td",{colspan:4},"TOTAL"), el("td",{}, ""), el("td",{}, fmtRupiah(totals.total)),
+      el("td",{}, fmtRupiah(totals.dibayar)), el("td",{}, fmtRupiah(totals.total-totals.dibayar)), el("td",{})
+    ));
+  }
+
+  table.appendChild(thead); table.appendChild(tbody); table.appendChild(tfoot);
+  wrap.appendChild(table);
+  wrap.appendChild(el("button",{class:"add-row-btn", type:"button", onclick:()=>{
+    dynTables[kind].push(blankRow(kind));
+    rerenderCurrentStep();
+  }}, "+ Tambah Baris"));
+  return wrap;
+}
+
+function rerenderCurrentStep(){
+  const body = $("#survey-body");
+  if(body) renderWizard(body);
+}
+function refreshGauge(){
+  const g = $("#kifayah-figure");
+  if(!g) return;
+  const perCapita = getPerCapita();
+  g.textContent = perCapita.toLocaleString("id-ID");
+  const cls = classifyPerCapita(perCapita);
+  const badge = $("#kifayah-badge");
+  if(badge) badge.textContent = cls.label;
+}
+function getPerCapita(){
+  const totalPenghasilan = calcTableTotal("penghasilan");
+  const tanggungan = parseFloat(formState.jumlah_tanggungan) || 1;
+  return totalPenghasilan / Math.max(tanggungan,1);
+}
+
+function renderKifayahGauge(){
+  const perCapita = getPerCapita();
+  const cls = classifyPerCapita(perCapita);
+  return el("div",{class:"kifayah-gauge"},
+    el("div",{class:"eyebrow"}, "Kalkulator Kelayakan · Real-time"),
+    el("div",{class:"figure"}, el("span",{class:"cur"},"Rp"), el("span",{id:"kifayah-figure"}, Math.round(perCapita).toLocaleString("id-ID")), " /kapita/bulan"),
+    el("div",{class:"sub"}, "Dihitung otomatis dari total penghasilan keluarga ÷ jumlah tanggungan"),
+    el("div",{class:"badge"}, el("span",{class:"dot"}), el("span",{id:"kifayah-badge"}, cls.label)),
+    el("div",{class:"thresholds"},
+      el("span",{class: cls.key==="extreme"?"on":""}, "< 351.957 Extreme"),
+      el("span",{class: cls.key==="gk"?"on":""}, "< 609.160 GK"),
+      el("span",{class: cls.key==="hk"?"on":""}, "< 979.989 HK/Miskin"),
+      el("span",{class: ["t1","t2","t3","t4"].includes(cls.key)?"on":""}, "≥ 979.989 Non-prioritas"),
+    )
+  );
+}
+
+/* ---------------- Submit ---------------- */
+async function submitAssessment(body){
+  const step = STEPS[STEPS.length-1];
+  if(!validateStep(step)) return;
+
+  const btn = $("#submit-btn");
+  btn.disabled = true;
+  btn.innerHTML = "";
+  btn.appendChild(el("span",{class:"spinner"}));
+  btn.appendChild(document.createTextNode(" Mengirim..."));
+
+  const perCapita = getPerCapita();
+  const cls = classifyPerCapita(perCapita);
+
+  const payload = {
+    ...formState,
+    table_penghasilan: dynTables.penghasilan,
+    table_pengeluaran: dynTables.pengeluaran,
+    table_hutang: dynTables.hutang,
+    total_penghasilan: calcTableTotal("penghasilan"),
+    total_pengeluaran: calcTableTotal("pengeluaran"),
+    pendapatan_per_kapita: perCapita,
+    kategori_had_kifayah: cls.label,
+    jenis_form: "full_assessment",
+    status_review: "pending",
+    submittedAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  try{
+    await ensureAnonAuth();
+    if(FIREBASE_NOT_CONFIGURED){
+      console.warn("Firebase belum dikonfigurasi. Data tidak benar-benar tersimpan. Payload:", payload);
+      await new Promise(r=>setTimeout(r,700));
+    } else {
+      await db.collection(COLLECTION).add(payload);
+      notifyAdmin(`Assessment baru: ${payload.nama_pengaju || "-"} (Full Assessment).`);
+    }
+    renderSuccessScreen(body, true);
+  } catch(err){
+    console.error(err);
+    toast("Gagal mengirim formulir: " + friendlyFirestoreError(err));
+    btn.disabled = false;
+    btn.textContent = "Kirim Formulir";
+  }
+}
+
+function renderSuccessScreen(body, submitted){
+  body.innerHTML = "";
+  const ref = new Date().toISOString().slice(0,19).replace(/[-:T]/g,"");
+  body.appendChild(el("div",{class:"success-screen"},
+    el("div",{class:"icon"}, "✓"),
+    el("h2",{}, "Formulir Terkirim"),
+    el("p",{}, "Terima kasih. Data assessment calon penerima manfaat telah berhasil dikirim dan akan ditinjau oleh admin program."),
+    el("div",{class:"ref mono"}, "REF-" + ref),
+    el("div",{},
+      el("a",{href:"#/survey", class:"btn btn-primary", onclick:()=>setTimeout(()=>location.reload(),50)}, "Isi Formulir Baru")
+    )
+  ));
+}
+
+/* ================================================================
+   RAPID ASSESSMENT — alur 3 tahap
+   ----------------------------------------------------------------
+   1) Surveyor mengisi Data Program + tanda tangan SEKALI di awal
+      sesi (disimpan sebagai "sesi" di Firestore koleksi
+      rapid_sessions, lalu dipakai ulang untuk seluruh formulir
+      individu tanpa perlu tanda tangan berulang).
+   2) Surveyor memilih: isi sendiri data calon peserta, ATAU
+      bagikan link agar calon peserta mengisi sendiri (sampai poin D).
+   3a) Isi sendiri → langsung terkirim ke Admin.
+   3b) Lewat link → data masuk daftar "menunggu direview"; surveyor
+       menentukan Kelayakan & Catatan per entri, lalu mengirim
+       seluruh entri yang sudah direview secara massal ke Admin.
+   Kategori Asnaf pada poin E dihitung OTOMATIS dari jawaban.
+   ================================================================ */
+let rapidSession = null;   // { id, nama_program, tgl_pelaksanaan, lokasi_penyaluran, nama_petugas, petugas_signature }
+let rapidMode = null;      // "direct" | "link"
+let rapidForm = {};
+let rapidCount = 0;
+let sigSession = null;     // tanda tangan petugas, tahap 1 (berlaku 1 sesi)
+let sigPengaju = null;     // tanda tangan pengaju, khusus mode "direct"
+let reviewUnsub = null;
+
+async function ensureAnonAuth(){
+  if(FIREBASE_NOT_CONFIGURED || !auth) return;
+  if(!auth.currentUser){
+    try{ await auth.signInAnonymously(); } catch(e){ console.warn("Gagal anonymous sign-in:", e); }
+  }
+}
+
+/* Menulis ke koleksi "mail" — dibaca & dikirim otomatis oleh ekstensi
+   resmi Firebase "Trigger Email from Firestore" (perlu dipasang
+   terpisah di Firebase Console > Extensions). Alamat tujuan diambil
+   dari app_settings/notifications yang diisi Admin di dashboard. */
+async function notifyAdmin(message){
+  if(FIREBASE_NOT_CONFIGURED) return;
+  try{
+    const settingsDoc = await db.collection("app_settings").doc("notifications").get();
+    const emails = settingsDoc.exists ? (settingsDoc.data().emails || "") : "";
+    const to = emails.split(",").map(s=>s.trim()).filter(Boolean);
+    if(to.length === 0) return;
+    await db.collection("mail").add({
+      to,
+      message: { subject: "Had Kifayah — Data Assessment Baru", text: message + "\n\nSilakan buka Dashboard Admin untuk meninjau." }
+    });
+  } catch(e){ console.warn("Gagal mengirim notifikasi email:", e); }
+}
+
+function renderRapidPage(app){
+  rapidSession = null; rapidMode = null; rapidForm = {}; rapidCount = 0;
+  ensureAnonAuth();
+  const wrap = el("div",{});
+  wrap.appendChild(topbar(false));
+  const shell = el("div",{class:"shell", id:"rapid-shell"});
+  wrap.appendChild(shell);
+  app.appendChild(wrap);
+  renderRapidBody(shell);
+}
+
+function renderRapidBody(shell){
+  shell.innerHTML = "";
+  shell.appendChild(el("div",{class:"rapid-head"},
+    el("div",{style:"color:var(--accent);font-weight:700;font-size:11px;letter-spacing:.6px;text-transform:uppercase;"}, "Rapid Assessment · Layanan Massal"),
+    el("h1",{style:"font-size:24px;margin-top:4px;"}, "Form Rapid Assessment Individu"),
+    el("p",{style:"color:var(--ink-muted);font-size:13.5px;margin-top:6px;max-width:640px;"},
+      "Versi ringkas untuk penilaian kelayakan cepat pada program penyaluran sekali implementasi.")
+  ));
+
+  if(!rapidSession){ shell.appendChild(renderSessionSetup(shell)); return; }
+
+  shell.appendChild(renderProgramBar(shell));
+
+  if(!rapidMode){ shell.appendChild(renderModeChoice(shell)); return; }
+
+  if(rapidMode === "direct"){
+    if(rapidCount > 0) shell.appendChild(el("div",{class:"session-counter"}, `✓ ${rapidCount} formulir terkirim ke Admin pada sesi ini`));
+    shell.appendChild(renderDirectForm(shell));
+  } else {
+    shell.appendChild(renderLinkMode(shell));
+    startReviewListener(rapidSession.id);
+  }
+}
+
+/* ---------------- Tahap 1: Data Program + tanda tangan sesi ---------------- */
+function renderSessionSetup(shell){
+  const temp = {};
+  sigSession = null;
+  const panel = el("div",{class:"step-panel"},
+    el("div",{class:"step-head"},
+      el("div",{class:"eyebrow"}, "Tahap 1 · A. Data Program"),
+      el("h2",{}, "Mulai Sesi Assessment"),
+      el("div",{class:"desc"}, "Data ini melekat pada seluruh formulir individu di sesi ini. Tanda tangan di bawah juga otomatis diterapkan pada setiap formulir yang Anda kirim/review — tidak perlu tanda tangan berulang.")
+    ),
+    el("div",{class:"row2"},
+      plainField("Nama Program", v=>temp.nama_program=v, "text", true),
+      plainField("Tanggal Pelaksanaan", v=>temp.tgl_pelaksanaan=v, "date"),
+    ),
+    el("div",{class:"row2"},
+      plainField("Lokasi Penyaluran", v=>temp.lokasi_penyaluran=v),
+      plainField("Nama Petugas / Amil", v=>temp.nama_petugas=v, "text", true),
+    ),
+  );
+  const sigBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, "Tanda Tangan Petugas / Amil (berlaku untuk seluruh sesi ini)"));
+  sigSession = createSignaturePad();
+  sigBox.appendChild(sigSession.el);
+  panel.appendChild(sigBox);
+
+  panel.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
+    el("button",{class:"btn btn-primary", onclick: async ()=>{
+      if(!temp.nama_program || !temp.nama_petugas){ toast("Nama Program dan Nama Petugas wajib diisi."); return; }
+      if(sigSession.isEmpty()){ toast("Mohon bubuhkan tanda tangan petugas terlebih dahulu."); return; }
+      await ensureAnonAuth();
+      if(!FIREBASE_NOT_CONFIGURED && auth && !auth.currentUser){
+        toast("Gagal masuk secara anonim. Aktifkan dulu Authentication → Sign-in method → \"Anonymous\" di Firebase Console, lalu coba lagi.");
+        return;
+      }
+      const sessionPayload = {
+        ...temp,
+        petugas_signature: sigSession.toDataURL(),
+        createdAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      try{
+        if(FIREBASE_NOT_CONFIGURED){
+          rapidSession = { id: "local-"+uid(), ...sessionPayload };
+        } else {
+          const ref = await db.collection("rapid_sessions").add(sessionPayload);
+          rapidSession = { id: ref.id, ...sessionPayload };
+        }
+        renderRapidBody(shell);
+      } catch(err){ toast("Gagal memulai sesi: " + friendlyFirestoreError(err)); }
+    }}, "Mulai Assessment →")
+  ));
+  return panel;
+}
+function plainField(label, onInput, type="text", required){
+  const wrap = el("div",{class:"field"});
+  wrap.appendChild(el("label",{class:"q"}, label, required?el("span",{class:"req"}," *"):null));
+  wrap.appendChild(el("input",{type, oninput:(e)=>onInput(e.target.value)}));
+  return wrap;
+}
+function programChip(label, value){
+  return el("div",{class:"program-chip"}, el("div",{class:"k"}, label), el("div",{class:"v"}, value||"—"));
+}
+function renderProgramBar(shell){
+  return el("div",{class:"program-bar"},
+    el("div",{},
+      el("div",{class:"program-bar-label"}, "A. Data Program — Sesi Aktif"),
+      el("div",{class:"program-bar-grid"},
+        programChip("Nama Program", rapidSession.nama_program),
+        programChip("Tgl Pelaksanaan", rapidSession.tgl_pelaksanaan),
+        programChip("Lokasi Penyaluran", rapidSession.lokasi_penyaluran),
+        programChip("Petugas / Amil", rapidSession.nama_petugas),
+      )
+    ),
+    el("button",{class:"btn btn-ghost", onclick:()=>{
+      if(!confirm("Mengakhiri sesi ini dan kembali ke awal?")) return;
+      if(reviewUnsub){ reviewUnsub(); reviewUnsub=null; }
+      rapidSession=null; rapidMode=null; rapidCount=0;
+      renderRapidBody(shell);
+    }}, "Akhiri Sesi")
+  );
+}
+
+/* ---------------- Tahap 2: pilihan cara pengisian ---------------- */
+function renderModeChoice(shell){
+  return el("div",{class:"step-panel"},
+    el("div",{class:"step-head"},
+      el("div",{class:"eyebrow"}, "Tahap 2"),
+      el("h2",{}, "Bagaimana Data Calon Peserta Diisi?"),
+      el("div",{class:"desc"}, "Pilih salah satu cara pengumpulan data untuk sesi ini.")
+    ),
+    el("div",{class:"mode-choices"},
+      el("button",{class:"mode-card", type:"button", onclick:()=>{ rapidMode="direct"; renderRapidBody(shell); }},
+        el("div",{class:"mode-card-icon"}, "✍️"),
+        el("h3",{}, "Isi Data Calon Peserta oleh Surveyor"),
+        el("p",{}, "Surveyor mewawancarai dan mengisi formulir langsung. Data terkirim seketika ke Admin.")
+      ),
+      el("button",{class:"mode-card", type:"button", onclick:()=>{ rapidMode="link"; renderRapidBody(shell); }},
+        el("div",{class:"mode-card-icon"}, "🔗"),
+        el("h3",{}, "Bagikan Link ke Calon Peserta"),
+        el("p",{}, "Calon peserta mengisi sendiri lewat link. Surveyor meninjau & menentukan kelayakan sebelum dikirim ke Admin.")
+      ),
+    )
+  );
+}
+
+/* ---------------- Field helpers bound ke rapidForm ---------------- */
+function rapidRadioGroup(id, label, options, required, onSelect){
+  const wrap = el("div",{class:"field"});
+  wrap.appendChild(el("label",{class:"q"}, label, required?el("span",{class:"req"}," *"):null));
+  const optsWrap = el("div",{class:"options"});
+  options.forEach(opt=>{
+    const inp = el("input",{type:"radio", name:"rapid_"+id});
+    const lab = el("label",{class:"opt"}, inp, el("span",{}, opt));
+    inp.addEventListener("change", ()=>{
+      rapidForm[id] = opt;
+      $$(".opt", optsWrap).forEach(o=>o.classList.remove("checked"));
+      lab.classList.add("checked");
+      if(onSelect) onSelect(opt);
+    });
+    optsWrap.appendChild(lab);
+  });
+  wrap.appendChild(optsWrap);
+  return wrap;
+}
+function rapidTextField(id, label, opts={}){
+  const wrap = el("div",{class:"field"});
+  wrap.appendChild(el("label",{class:"q"}, label, opts.required?el("span",{class:"req"}," *"):null));
+  const inp = el("input",{type: opts.type||"text", id:"rf-"+id, value: rapidForm[id]||""});
+  inp.addEventListener("input", ()=>{ rapidForm[id] = inp.value; if(opts.onInput) opts.onInput(inp.value); });
+  wrap.appendChild(inp);
+  if(opts.hint) wrap.appendChild(el("div",{class:"hint"}, opts.hint));
+  return wrap;
+}
+function rapidTextareaField(id, label){
+  const wrap = el("div",{class:"field"});
+  wrap.appendChild(el("label",{class:"q"}, label));
+  const ta = el("textarea",{});
+  ta.value = rapidForm[id] || "";
+  ta.addEventListener("input", ()=>{ rapidForm[id] = ta.value; });
+  wrap.appendChild(ta);
+  return wrap;
+}
+function rapidMuallafField(){
+  const wrap = el("div",{class:"field"});
+  const checked = !!rapidForm.is_muallaf;
+  const inp = el("input",{type:"checkbox", checked: checked?"checked":null});
+  const block = el("label",{class:"opt-block"+(checked?" checked":"")}, inp, el("div",{}, el("div",{class:"t"}, "Muallaf?")));
+  inp.addEventListener("change", ()=>{
+    rapidForm.is_muallaf = inp.checked;
+    block.classList.toggle("checked", inp.checked);
+    const w = document.getElementById("muallaf-tahun-wrap");
+    if(w) w.classList.toggle("hidden", !inp.checked);
+    refreshAsnafBadges();
+  });
+  wrap.appendChild(block);
+  wrap.appendChild(el("div",{id:"muallaf-tahun-wrap", class:"field hidden", style:"margin-top:8px;"},
+    rapidTextField("muallaf_tahun","Sejak Tahun", {type:"number"})
+  ));
+  return wrap;
+}
+function rapidPekerjaanField(onAfterSelect){
+  return el("div",{},
+    rapidRadioGroup("pekerjaan_kepala","Pekerjaan Kepala Keluarga",
+      ["Menganggur","Buruh Serabutan","Karyawan Rendahan","Pedagang Kecil","Lainnya"], false,
+      (opt)=>{
+        const w = document.getElementById("pekerjaan-lainnya-wrap");
+        if(w) w.classList.toggle("hidden", opt !== "Lainnya");
+        if(onAfterSelect) onAfterSelect();
+      }
+    ),
+    el("div",{id:"pekerjaan-lainnya-wrap", class:"field hidden"},
+      rapidTextField("pekerjaan_kepala_lainnya","Sebutkan Pekerjaan", {onInput: onAfterSelect})
+    )
+  );
+}
+
+/* ---------------- Kalkulator kelayakan (mini gauge) ---------------- */
+function getRapidPerCapita(){
+  const total = parseFloat(rapidForm.total_penghasilan) || 0;
+  const tanggungan = parseFloat(rapidForm.jumlah_tanggungan) || 1;
+  return total / Math.max(tanggungan, 1);
+}
+function refreshRapidGauge(){
+  const perCapita = getRapidPerCapita();
+  const cls = classifyPerCapita(perCapita);
+  const figure = $("#rapid-kifayah-figure");
+  const badge = $("#rapid-kifayah-badge");
+  if(figure) figure.textContent = Math.round(perCapita).toLocaleString("id-ID");
+  if(badge) badge.textContent = cls.label;
+  const spans = $$(".rapid-thresholds span");
+  spans.forEach(s=>s.classList.remove("on"));
+  const idxMap = { extreme:0, gk:1, hk:2 };
+  const idx = idxMap[cls.key];
+  if(idx != null && spans[idx]) spans[idx].classList.add("on");
+  else if(spans[3]) spans[3].classList.add("on");
+}
+function renderRapidGauge(){
+  const perCapita = getRapidPerCapita();
+  const cls = classifyPerCapita(perCapita);
+  return el("div",{class:"kifayah-gauge"},
+    el("div",{class:"eyebrow"}, "Pendapatan / Kapita / Bulan · Otomatis"),
+    el("div",{class:"figure"}, el("span",{class:"cur"},"Rp"), el("span",{id:"rapid-kifayah-figure"}, Math.round(perCapita).toLocaleString("id-ID"))),
+    el("div",{class:"badge"}, el("span",{class:"dot"}), el("span",{id:"rapid-kifayah-badge"}, cls.label)),
+    el("div",{class:"thresholds rapid-thresholds"},
+      el("span",{class: cls.key==="extreme"?"on":""}, "< 351.957 Extreme Poor"),
+      el("span",{class: cls.key==="gk"?"on":""}, "< 609.160 Batas GK"),
+      el("span",{class: cls.key==="hk"?"on":""}, "< 979.989 Batas HK"),
+      el("span",{class: ["extreme","gk","hk"].includes(cls.key) ? "" : "on"}, "≥ 979.989 Di atas HK"),
+    )
+  );
+}
+
+/* ---------------- Kategori Asnaf — dihitung otomatis ---------------- */
+function computeAsnaf(data){
+  const cats = [];
+  if(data.pekerjaan_kepala === "Menganggur") cats.push("Fakir");
+  const tanggungan = parseFloat(data.jumlah_tanggungan) || 1;
+  const penghasilan = parseFloat(data.total_penghasilan) || 0;
+  const perCapita = penghasilan / Math.max(tanggungan, 1);
+  if(perCapita < 979989) cats.push("Miskin");
+  if(data.is_muallaf) cats.push("Muallaf");
+  const hutang = parseFloat(data.jumlah_hutang) || 0;
+  if(hutang > 0 && hutang > penghasilan) cats.push("Gharim");
+  if(data.pekerjaan_kepala === "Lainnya" && data.pekerjaan_kepala_lainnya){
+    const t = data.pekerjaan_kepala_lainnya.toLowerCase();
+    if(t.includes("pelajar") || t.includes("guru")) cats.push("Fisabilillah");
+  }
+  return cats;
+}
+function renderAsnafBadgeSpans(cats){
+  if(cats.length === 0) return [el("span",{class:"asnaf-badge asnaf-badge-empty"}, "Belum ada kategori terdeteksi")];
+  return cats.map(c=>el("span",{class:"asnaf-badge"}, c));
+}
+function refreshAsnafBadges(){
+  const box = $("#asnaf-badges");
+  if(!box) return;
+  box.innerHTML = "";
+  renderAsnafBadgeSpans(computeAsnaf(rapidForm)).forEach(s=>box.appendChild(s));
+}
+function renderAsnafBadgesBlock(){
+  return el("div",{class:"field"},
+    el("label",{class:"q"}, "Kategori Asnaf (Otomatis)"),
+    el("div",{class:"asnaf-badges", id:"asnaf-badges"}, ...renderAsnafBadgeSpans(computeAsnaf(rapidForm))),
+  );
+}
+
+/* ---------------- Signature pad (canvas) ---------------- */
+function createSignaturePad(){
+  const width = 320, height = 140;
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.createElement("canvas");
+  canvas.className = "sigpad-canvas";
+  canvas.width = width * dpr; canvas.height = height * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.strokeStyle = "#1E2624"; ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  let drawing = false, hasDrawn = false, last = null;
+  const pos = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const p = e.touches && e.touches.length ? e.touches[0] : e;
+    return { x: p.clientX - rect.left, y: p.clientY - rect.top };
+  };
+  const start = (e) => { e.preventDefault(); drawing = true; last = pos(e); };
+  const move = (e) => {
+    if(!drawing) return;
+    e.preventDefault();
+    const p = pos(e);
+    ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+    last = p; hasDrawn = true;
+  };
+  const end = () => { drawing = false; };
+  canvas.addEventListener("mousedown", start);
+  canvas.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
+  canvas.addEventListener("touchstart", start, {passive:false});
+  canvas.addEventListener("touchmove", move, {passive:false});
+  canvas.addEventListener("touchend", end);
+
+  const wrap = el("div",{class:"sigpad-wrap"}, canvas,
+    el("div",{class:"sigpad-controls"},
+      el("span",{class:"sigpad-hint"}, "Tanda tangan di area ini"),
+      el("button",{type:"button", class:"sigpad-clear", onclick:()=>{ ctx.clearRect(0,0,canvas.width,canvas.height); hasDrawn=false; }}, "Hapus")
+    )
+  );
+  return { el: wrap, isEmpty: () => !hasDrawn, toDataURL: () => hasDrawn ? canvas.toDataURL("image/png") : null };
+}
+
+/* ---------------- Section heading ---------------- */
+function sectionHeading(letter, title, sub){
+  return el("div",{class:"rapid-section-head"},
+    el("div",{class:"rapid-section-letter"}, letter || "✒"),
+    el("div",{}, el("h3",{}, title), sub ? el("div",{class:"hint"}, sub) : null)
+  );
+}
+
+/* ---------------- Tahap 3a: form diisi langsung oleh surveyor ---------------- */
+function renderDirectForm(shell){
+  rapidForm = {};
+  const panel = el("div",{class:"step-panel"});
+
+  panel.appendChild(sectionHeading("B", "Identitas Calon Penerima Manfaat"));
+  panel.appendChild(el("div",{class:"row2"}, rapidTextField("nama","Nama", {required:true}), rapidTextField("nik","NIK", {required:true})));
+  panel.appendChild(rapidTextField("alamat","Alamat"));
+  panel.appendChild(el("div",{class:"row3"},
+    rapidRadioGroup("jenis_kelamin","Jenis Kelamin",["Laki-Laki","Perempuan"]),
+    rapidTextField("usia","Usia (Tahun)", {type:"number"}),
+    rapidTextField("jumlah_tanggungan","Jml. Tanggungan Keluarga", {type:"number", onInput: ()=>{ refreshRapidGauge(); refreshAsnafBadges(); }}),
+  ));
+  panel.appendChild(el("div",{class:"row2"},
+    rapidRadioGroup("status_nikah","Status Pernikahan",["Lajang","Menikah","Janda","Duda"]),
+    rapidTextField("telp","Nomor Telepon", {type:"tel"}),
+  ));
+  panel.appendChild(rapidMuallafField());
+
+  panel.appendChild(sectionHeading("C", "Indikator Ekonomi (Kelayakan Cepat)"));
+  panel.appendChild(rapidPekerjaanField(refreshAsnafBadges));
+  panel.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"number", onInput: ()=>{ refreshRapidGauge(); refreshAsnafBadges(); }}));
+  panel.appendChild(renderRapidGauge());
+  panel.appendChild(rapidRadioGroup("kondisi_kepala","Kondisi Kepala Keluarga",["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"]));
+
+  panel.appendChild(sectionHeading("D", "Indikator Ekonomi Lainnya", "Data pendukung untuk memperkuat penilaian kelayakan ekonomi calon penerima."));
+  panel.appendChild(el("div",{class:"row2"},
+    rapidRadioGroup("kepemilikan_rumah","Kepemilikan Rumah",["Mengontrak","Menumpang","Milik Sendiri"]),
+    rapidRadioGroup("kondisi_dinding","Kondisi Dinding Rumah",["Non Permanen","Semi Permanen","Permanen"]),
+  ));
+  panel.appendChild(el("div",{class:"row2"},
+    rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"number", onInput: refreshAsnafBadges}),
+    rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"number"}),
+  ));
+  panel.appendChild(el("div",{class:"row2"},
+    rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"number"}),
+    rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"number"}),
+  ));
+
+  panel.appendChild(sectionHeading("E", "Kategori Asnaf & Rekomendasi", "Kategori asnaf dihitung otomatis dari jawaban di atas."));
+  panel.appendChild(renderAsnafBadgesBlock());
+  panel.appendChild(rapidRadioGroup("kelayakan","Kelayakan",["Layak Dibantu","Perlu Perhatian Khusus","Tidak Layak Dibantu"], true));
+  panel.appendChild(rapidTextareaField("catatan_petugas","Catatan Petugas"));
+  panel.appendChild(rapidTextField("kota_tanggal","Kota, Tanggal / Bulan / Tahun", {}));
+
+  panel.appendChild(sectionHeading(null, "Tanda Tangan"));
+  const sigGrid = el("div",{class:"row2"});
+  sigGrid.appendChild(el("div",{class:"sig-box"},
+    el("div",{class:"q"}, "Petugas / Amil"),
+    el("div",{class:"hint"}, "Memakai tanda tangan sesi (Tahap 1) — " + (rapidSession.nama_petugas||"")),
+    el("img",{src: rapidSession.petugas_signature, style:"max-width:220px;border:1px solid var(--line);border-radius:8px;background:#fff;margin-top:8px;"})
+  ));
+  const pengajuBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, "Penerima Manfaat"));
+  sigPengaju = createSignaturePad();
+  pengajuBox.appendChild(sigPengaju.el);
+  sigGrid.appendChild(pengajuBox);
+  panel.appendChild(sigGrid);
+
+  panel.appendChild(el("div",{class:"step-foot"},
+    el("button",{class:"btn btn-ghost", onclick:()=>{ rapidMode=null; renderRapidBody(shell); }}, "← Ganti Cara Pengisian"),
+    el("button",{class:"btn btn-primary", id:"rapid-submit-btn", onclick:()=>submitDirect(shell)}, "Kirim ke Admin →")
+  ));
+  return panel;
+}
+
+async function submitDirect(shell){
+  if(!rapidForm.nama || !rapidForm.nik){ toast("Nama dan NIK calon penerima manfaat wajib diisi."); return; }
+  if(!rapidForm.kelayakan){ toast("Mohon pilih Kelayakan."); return; }
+  if(sigPengaju.isEmpty()){ toast("Mohon minta tanda tangan penerima manfaat."); return; }
+
+  const btn = $("#rapid-submit-btn");
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.innerHTML = ""; btn.appendChild(el("span",{class:"spinner"})); btn.appendChild(document.createTextNode(" Mengirim..."));
+
+  const perCapita = getRapidPerCapita();
+  const cls = classifyPerCapita(perCapita);
+  const asnaf = computeAsnaf(rapidForm);
+
+  const payload = {
+    ...rapidForm,
+    pendapatan_per_kapita: perCapita,
+    kategori_had_kifayah: cls.label,
+    kategori_asnaf: asnaf,
+    nama_pengaju: rapidForm.nama,
+    session_id: rapidSession.id,
+    program_nama: rapidSession.nama_program,
+    program_tgl: rapidSession.tgl_pelaksanaan,
+    program_lokasi: rapidSession.lokasi_penyaluran,
+    program_petugas: rapidSession.nama_petugas,
+    ttd_petugas: rapidSession.petugas_signature,
+    ttd_pengaju: sigPengaju.toDataURL(),
+    diisi_oleh: "surveyor",
+    jenis_form: "rapid_assessment",
+    status_review: "pending",
+    submittedAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  try{
+    await ensureAnonAuth();
+    if(FIREBASE_NOT_CONFIGURED){
+      console.warn("Firebase belum dikonfigurasi. Data tidak benar-benar tersimpan. Payload:", payload);
+      await new Promise(r=>setTimeout(r,500));
+    } else {
+      await db.collection(COLLECTION).add(payload);
+      notifyAdmin(`Assessment baru: ${payload.nama_pengaju} (Rapid Assessment — ${rapidSession.nama_program}).`);
+    }
+    rapidCount++;
+    rapidForm = {};
+    toast(`Terkirim (${rapidCount}). Formulir siap untuk penerima berikutnya.`);
+    renderRapidBody(shell);
+    window.scrollTo(0,0);
+  } catch(err){
+    console.error(err);
+    toast("Gagal mengirim: " + friendlyFirestoreError(err));
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+/* ---------------- Tahap 3b: bagikan link + daftar review ---------------- */
+function renderLinkMode(shell){
+  const wrap = el("div",{});
+  const link = location.origin + location.pathname + "#/isi/" + rapidSession.id;
+
+  wrap.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
+    el("div",{class:"step-head"},
+      el("div",{class:"eyebrow"}, "Tahap 2 · Bagikan Link"),
+      el("h2",{}, "Link Formulir untuk Calon Peserta"),
+      el("div",{class:"desc"}, "Bagikan link ini (WhatsApp, dsb). Calon peserta mengisi data diri sampai poin D beserta nomor telepon dan tanda tangan sendiri.")
+    ),
+    el("div",{class:"link-box"},
+      el("input",{type:"text", readonly:"readonly", value: link, id:"share-link-input", onclick:(e)=>e.target.select()}),
+      el("button",{class:"btn btn-accent", type:"button", onclick:()=>{
+        (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject()).then(()=>toast("Link disalin.")).catch(()=>{
+          const inp = $("#share-link-input"); inp.select(); document.execCommand("copy"); toast("Link disalin.");
+        });
+      }}, "Salin Link")
+    )
+  ));
+
+  wrap.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
+    el("div",{class:"step-head"}, el("div",{class:"eyebrow"}, "Menunggu Direview"), el("h2",{style:"font-size:19px;"}, "Data Masuk dari Calon Peserta")),
+    el("div",{id:"review-pending-list"}, el("div",{class:"empty-state"}, "Memuat…"))
+  ));
+
+  wrap.appendChild(el("div",{class:"step-panel"},
+    el("div",{class:"step-head"}, el("div",{class:"eyebrow"}, "Siap Dikirim"), el("h2",{style:"font-size:19px;"}, "Sudah Direview")),
+    el("div",{id:"review-ready-list"}, el("div",{class:"empty-state"}, "Belum ada.")),
+    el("div",{id:"review-ready-actions"})
+  ));
+
+  wrap.appendChild(el("div",{class:"step-foot", style:"border-top:none;"},
+    el("button",{class:"btn btn-ghost", onclick:()=>{ rapidMode=null; if(reviewUnsub){reviewUnsub();reviewUnsub=null;} renderRapidBody(shell); }}, "← Ganti Cara Pengisian")
+  ));
+
+  return wrap;
+}
+
+function startReviewListener(sessionId){
+  if(reviewUnsub) reviewUnsub();
+  if(FIREBASE_NOT_CONFIGURED){
+    const pendingEl = $("#review-pending-list");
+    if(pendingEl){ pendingEl.innerHTML=""; pendingEl.appendChild(el("div",{class:"empty-state"}, "Firebase belum dikonfigurasi — daftar tidak tersedia.")); }
+    return;
+  }
+  reviewUnsub = db.collection(COLLECTION).where("session_id","==",sessionId).onSnapshot(snap=>{
+    const docs = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    renderReviewPendingList(docs.filter(d=>d.status_review === "awaiting_review"));
+    renderReviewReadyList(docs.filter(d=>d.status_review === "surveyor_reviewed"));
+  }, err=>{
+    const pendingEl = $("#review-pending-list");
+    if(pendingEl){ pendingEl.innerHTML=""; pendingEl.appendChild(el("div",{class:"empty-state"}, "Gagal memuat: "+friendlyFirestoreError(err))); }
+  });
+}
+function renderReviewPendingList(list){
+  const box = $("#review-pending-list");
+  if(!box) return;
+  box.innerHTML = "";
+  if(list.length === 0){ box.appendChild(el("div",{class:"empty-state"}, "Belum ada data masuk dari calon peserta.")); return; }
+  list.forEach(sub=>{
+    box.appendChild(el("div",{class:"review-item"},
+      el("div",{},
+        el("div",{class:"review-item-name"}, sub.nama || "—"),
+        el("div",{class:"review-item-sub"}, `NIK ${sub.nik||"—"} · Rp/kapita ${fmtRupiah(sub.pendapatan_per_kapita||0)}`),
+      ),
+      el("button",{class:"btn btn-primary btn-sm", onclick:()=>openReviewPanel(sub)}, "Review →")
+    ));
+  });
+}
+function renderReviewReadyList(list){
+  const box = $("#review-ready-list");
+  const actionsBox = $("#review-ready-actions");
+  if(!box) return;
+  box.innerHTML = "";
+  if(list.length === 0){
+    box.appendChild(el("div",{class:"empty-state"}, "Belum ada entri yang sudah direview."));
+    if(actionsBox) actionsBox.innerHTML = "";
+    return;
+  }
+  list.forEach(sub=>{
+    box.appendChild(el("div",{class:"review-item"},
+      el("div",{}, el("div",{class:"review-item-name"}, sub.nama || "—"), el("div",{class:"review-item-sub"}, sub.kelayakan || "—")),
+      badgeFor("pending")
+    ));
+  });
+  if(actionsBox){
+    actionsBox.innerHTML = "";
+    actionsBox.appendChild(el("button",{class:"btn btn-accent", style:"margin-top:14px;width:100%;justify-content:center;", onclick:()=>submitBatchToAdmin(list)},
+      `Kirim ${list.length} Data ke Admin →`));
+  }
+}
+function openReviewPanel(sub){
+  const backdrop = el("div",{class:"drawer-backdrop", onclick:closeReviewPanel});
+  const drawer = el("div",{class:"drawer", id:"review-drawer"});
+  drawer.appendChild(el("div",{class:"drawer-head"}, el("h3",{}, sub.nama||"Review Data"), el("button",{onclick:closeReviewPanel}, "✕")));
+  const body = el("div",{class:"drawer-body"});
+  drawer.appendChild(body);
+
+  body.appendChild(dsection("Identitas", [
+    ["NIK", sub.nik], ["Alamat", sub.alamat], ["Jenis Kelamin", sub.jenis_kelamin],
+    ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["No. Telepon", sub.telp],
+    ["Muallaf", sub.is_muallaf ? `Ya, sejak ${sub.muallaf_tahun||"-"}` : "Tidak"],
+  ]));
+  body.appendChild(dsection("Indikator Ekonomi", [
+    ["Pekerjaan Kepala Keluarga", sub.pekerjaan_kepala==="Lainnya" ? sub.pekerjaan_kepala_lainnya : sub.pekerjaan_kepala],
+    ["Total Penghasilan / Bulan", fmtRupiah(sub.total_penghasilan)],
+    ["Pendapatan / Kapita / Bulan", fmtRupiah(sub.pendapatan_per_kapita)],
+    ["Kategori Had Kifayah", sub.kategori_had_kifayah],
+    ["Kondisi Kepala Keluarga", sub.kondisi_kepala],
+    ["Kepemilikan Rumah", sub.kepemilikan_rumah], ["Kondisi Dinding", sub.kondisi_dinding],
+    ["Jumlah Hutang", fmtRupiah(sub.jumlah_hutang)], ["Sisa Hutang", fmtRupiah(sub.sisa_hutang)],
+    ["Jumlah Tabungan", fmtRupiah(sub.jumlah_tabungan)], ["Jumlah Aset Lancar", fmtRupiah(sub.jumlah_aset_lancar)],
+  ]));
+  body.appendChild(el("div",{class:"dsection"}, el("h4",{},"Kategori Asnaf (Otomatis)"),
+    el("div",{class:"asnaf-badges"}, ...renderAsnafBadgeSpans(computeAsnaf(sub)))));
+  if(sub.ttd_pengaju){
+    body.appendChild(el("div",{class:"dsection"}, el("h4",{},"Tanda Tangan Penerima Manfaat"),
+      el("img",{src:sub.ttd_pengaju, style:"max-width:220px;border:1px solid var(--line);border-radius:8px;background:#fff;"})));
+  }
+
+  const reviewState = {};
+  body.appendChild(el("div",{class:"dsection"},
+    el("h4",{},"Penentuan Kelayakan (Surveyor)"),
+    reviewRadioGroup(["Layak Dibantu","Perlu Perhatian Khusus","Tidak Layak Dibantu"], reviewState),
+    (()=>{ const w=el("div",{class:"field"}); w.appendChild(el("label",{class:"q"},"Catatan Surveyor"));
+      const ta=el("textarea",{}); ta.addEventListener("input",()=>reviewState.catatan=ta.value); w.appendChild(ta); return w; })(),
+    el("button",{class:"btn btn-primary", style:"width:100%;justify-content:center;margin-top:10px;", onclick:()=>saveReview(sub, reviewState)}, "Simpan Review")
+  ));
+
+  document.body.appendChild(backdrop);
+  document.body.appendChild(drawer);
+}
+function closeReviewPanel(){ $$(".drawer-backdrop").forEach(n=>n.remove()); $$(".drawer").forEach(n=>n.remove()); }
+function reviewRadioGroup(options, state){
+  const optsWrap = el("div",{class:"options"});
+  options.forEach(opt=>{
+    const inp = el("input",{type:"radio", name:"review_kelayakan"});
+    const lab = el("label",{class:"opt"}, inp, el("span",{},opt));
+    inp.addEventListener("change", ()=>{
+      state.kelayakan = opt;
+      $$(".opt", optsWrap).forEach(o=>o.classList.remove("checked"));
+      lab.classList.add("checked");
+    });
+    optsWrap.appendChild(lab);
+  });
+  return optsWrap;
+}
+async function saveReview(sub, reviewState){
+  if(!reviewState.kelayakan){ toast("Mohon pilih Kelayakan."); return; }
+  try{
+    await db.collection(COLLECTION).doc(sub.id).update({
+      kelayakan: reviewState.kelayakan,
+      catatan_petugas: reviewState.catatan || "",
+      kategori_asnaf: computeAsnaf(sub),
+      ttd_petugas: rapidSession.petugas_signature,
+      reviewed_by: rapidSession.nama_petugas,
+      status_review: "surveyor_reviewed",
+      reviewed_at: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast("Review tersimpan.");
+    closeReviewPanel();
+  } catch(err){ toast("Gagal menyimpan review: " + friendlyFirestoreError(err)); }
+}
+async function submitBatchToAdmin(list){
+  if(!confirm(`Kirim ${list.length} data yang sudah direview ke Admin?`)) return;
+  try{
+    const batch = db.batch();
+    list.forEach(sub=>{ batch.update(db.collection(COLLECTION).doc(sub.id), { status_review: "pending" }); });
+    await batch.commit();
+    notifyAdmin(`${list.length} data Rapid Assessment baru dikirim oleh ${rapidSession.nama_petugas} (${rapidSession.nama_program}).`);
+    toast(`${list.length} data berhasil dikirim ke Admin.`);
+  } catch(err){ toast("Gagal mengirim ke Admin: " + friendlyFirestoreError(err)); }
+}
+
+/* ================================================================
+   PENGISIAN MANDIRI OLEH CALON PESERTA (link publik, tanpa login)
+   ================================================================ */
+let selfFillForm = {};
+let sigSelf = null;
+
+function renderSelfFillPage(app, sessionId){
+  const wrap = el("div",{});
+  wrap.appendChild(topbar(false));
+  const shell = el("div",{class:"shell", id:"selffill-shell", style:"max-width:720px;"});
+  wrap.appendChild(shell);
+  app.appendChild(wrap);
+  shell.appendChild(el("div",{class:"empty-state"}, "Memuat formulir…"));
+
+  ensureAnonAuth().then(async ()=>{
+    if(FIREBASE_NOT_CONFIGURED){
+      shell.innerHTML = "";
+      shell.appendChild(el("div",{class:"setup-banner"}, "Firebase belum dikonfigurasi, formulir tidak dapat dimuat."));
+      return;
+    }
+    try{
+      const doc = await db.collection("rapid_sessions").doc(sessionId).get();
+      if(!doc.exists){
+        shell.innerHTML = "";
+        shell.appendChild(el("div",{class:"empty-state"}, el("div",{class:"big"},"⚠️"), "Link tidak valid atau sesi sudah berakhir."));
+        return;
+      }
+      renderSelfFillForm(shell, sessionId, doc.data());
+    } catch(err){
+      shell.innerHTML = "";
+      shell.appendChild(el("div",{class:"empty-state"}, "Gagal memuat formulir: " + friendlyFirestoreError(err)));
+    }
+  });
+}
+
+function renderSelfFillForm(shell, sessionId, session){
+  selfFillForm = {};
+  rapidForm = selfFillForm; // helper field di atas membaca/menulis rapidForm
+  shell.innerHTML = "";
+  shell.appendChild(el("div",{class:"rapid-head"},
+    el("div",{style:"color:var(--accent);font-weight:700;font-size:11px;letter-spacing:.6px;text-transform:uppercase;"}, session.nama_program || "Rapid Assessment"),
+    el("h1",{style:"font-size:22px;margin-top:4px;"}, "Formulir Data Calon Penerima Manfaat"),
+    el("p",{style:"color:var(--ink-muted);font-size:13.5px;margin-top:6px;"}, `Lokasi: ${session.lokasi_penyaluran||"—"} · Tanggal: ${session.tgl_pelaksanaan||"—"}. Mohon isi data dengan benar dan lengkap.`)
+  ));
+
+  const panel = el("div",{class:"step-panel"});
+  panel.appendChild(sectionHeading("B", "Identitas Anda"));
+  panel.appendChild(el("div",{class:"row2"}, rapidTextField("nama","Nama Lengkap", {required:true}), rapidTextField("nik","NIK", {required:true})));
+  panel.appendChild(rapidTextField("alamat","Alamat"));
+  panel.appendChild(el("div",{class:"row3"},
+    rapidRadioGroup("jenis_kelamin","Jenis Kelamin",["Laki-Laki","Perempuan"]),
+    rapidTextField("usia","Usia (Tahun)", {type:"number"}),
+    rapidTextField("jumlah_tanggungan","Jml. Tanggungan Keluarga", {type:"number"}),
+  ));
+  panel.appendChild(el("div",{class:"row2"},
+    rapidRadioGroup("status_nikah","Status Pernikahan",["Lajang","Menikah","Janda","Duda"]),
+    rapidTextField("telp","Nomor Telepon (WhatsApp aktif)", {type:"tel", required:true}),
+  ));
+  panel.appendChild(rapidMuallafField());
+
+  panel.appendChild(sectionHeading("C", "Indikator Ekonomi"));
+  panel.appendChild(rapidPekerjaanField());
+  panel.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"number"}));
+  panel.appendChild(rapidRadioGroup("kondisi_kepala","Kondisi Kepala Keluarga",["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"]));
+
+  panel.appendChild(sectionHeading("D", "Indikator Ekonomi Lainnya"));
+  panel.appendChild(el("div",{class:"row2"},
+    rapidRadioGroup("kepemilikan_rumah","Kepemilikan Rumah",["Mengontrak","Menumpang","Milik Sendiri"]),
+    rapidRadioGroup("kondisi_dinding","Kondisi Dinding Rumah",["Non Permanen","Semi Permanen","Permanen"]),
+  ));
+  panel.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"number"}), rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"number"})));
+  panel.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"number"}), rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"number"})));
+
+  panel.appendChild(sectionHeading(null, "Tanda Tangan Anda"));
+  const sigBox = el("div",{class:"sig-box"});
+  sigSelf = createSignaturePad();
+  sigBox.appendChild(sigSelf.el);
+  panel.appendChild(sigBox);
+
+  panel.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
+    el("button",{class:"btn btn-primary", id:"selffill-submit-btn", onclick:()=>submitSelfFill(shell, sessionId, session)}, "Kirim Data →")
+  ));
+  shell.appendChild(panel);
+}
+
+async function submitSelfFill(shell, sessionId, session){
+  if(!selfFillForm.nama || !selfFillForm.nik){ toast("Nama dan NIK wajib diisi."); return; }
+  if(!selfFillForm.telp){ toast("Nomor telepon wajib diisi."); return; }
+  if(sigSelf.isEmpty()){ toast("Mohon bubuhkan tanda tangan Anda."); return; }
+
+  const btn = $("#selffill-submit-btn");
+  btn.disabled = true;
+  btn.innerHTML = ""; btn.appendChild(el("span",{class:"spinner"})); btn.appendChild(document.createTextNode(" Mengirim..."));
+
+  const total = parseFloat(selfFillForm.total_penghasilan) || 0;
+  const tanggungan = parseFloat(selfFillForm.jumlah_tanggungan) || 1;
+  const perCapita = total / Math.max(tanggungan,1);
+  const cls = classifyPerCapita(perCapita);
+
+  const payload = {
+    ...selfFillForm,
+    pendapatan_per_kapita: perCapita,
+    kategori_had_kifayah: cls.label,
+    nama_pengaju: selfFillForm.nama,
+    session_id: sessionId,
+    program_nama: session.nama_program,
+    program_tgl: session.tgl_pelaksanaan,
+    program_lokasi: session.lokasi_penyaluran,
+    program_petugas: session.nama_petugas,
+    ttd_pengaju: sigSelf.toDataURL(),
+    diisi_oleh: "peserta_sendiri",
+    jenis_form: "rapid_assessment",
+    status_review: "awaiting_review",
+    submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  try{
+    await ensureAnonAuth();
+    await db.collection(COLLECTION).add(payload);
+    shell.innerHTML = "";
+    shell.appendChild(el("div",{class:"success-screen"},
+      el("div",{class:"icon"}, "✓"),
+      el("h2",{}, "Data Terkirim"),
+      el("p",{}, "Terima kasih. Data Anda telah kami terima dan akan ditinjau oleh petugas program."),
+    ));
+  } catch(err){
+    toast("Gagal mengirim: " + friendlyFirestoreError(err));
+    btn.disabled = false;
+    btn.textContent = "Kirim Data →";
+  }
+}
+
+
+/* ================================================================
+   ADMIN — AUTH
+   ================================================================ */
+function renderAdminPage(app){
+  const wrap = el("div",{});
+  app.appendChild(wrap);
+
+  if(FIREBASE_NOT_CONFIGURED){
+    wrap.appendChild(topbar(false));
+    const shell = el("div",{class:"shell"});
+    shell.appendChild(el("div",{class:"setup-banner"},
+      "⚠️ Firebase belum dikonfigurasi. Buka file ", el("code",{},"index.html"),
+      ", cari bagian ", el("code",{},"firebaseConfig"), ", lalu isi dengan konfigurasi project Firebase Anda agar login admin dan penyimpanan data berfungsi."
+    ));
+    shell.appendChild(el("div",{class:"auth-wrap"}, el("div",{class:"auth-card"},
+      el("div",{class:"mark"},"HK"),
+      el("h2",{},"Login Admin"),
+      el("div",{class:"sub"},"Menunggu konfigurasi Firebase.")
+    )));
+    wrap.appendChild(shell);
+    return;
+  }
+
+  auth.onAuthStateChanged(user=>{
+    wrap.innerHTML = "";
+    wrap.appendChild(topbar(!!user));
+    const shell = el("div",{class:"shell"});
+    wrap.appendChild(shell);
+    if(user) renderDashboard(shell, user);
+    else renderLoginForm(shell);
+  });
+}
+
+function renderLoginForm(shell){
+  let errorMsg = null;
+  const draw = () => {
+    shell.innerHTML = "";
+    shell.appendChild(el("div",{class:"auth-wrap"},
+      el("div",{class:"auth-card"},
+        el("div",{class:"mark"}, "HK"),
+        el("h2",{}, "Login Admin"),
+        el("div",{class:"sub"}, "Masuk untuk meninjau data assessment yang masuk dari surveyor."),
+        errorMsg ? el("div",{class:"error-box"}, errorMsg) : null,
+        el("div",{class:"field-tight"}, el("label",{},"Email"), el("input",{type:"email", id:"login-email"})),
+        el("div",{class:"field-tight"}, el("label",{},"Kata Sandi"), el("input",{type:"password", id:"login-pass"})),
+        el("button",{class:"btn btn-primary", style:"width:100%;justify-content:center;", onclick: async ()=>{
+          const email = $("#login-email").value.trim();
+          const pass = $("#login-pass").value;
+          if(!email || !pass){ errorMsg = "Email dan kata sandi wajib diisi."; draw(); return; }
+          try{
+            await auth.signInWithEmailAndPassword(email, pass);
+          } catch(err){
+            errorMsg = "Login gagal: periksa kembali email dan kata sandi Anda.";
+            draw();
+          }
+        }}, "Masuk")
+      )
+    ));
+  };
+  draw();
+}
+function doLogout(){ if(auth) auth.signOut().then(()=>location.hash = "#/"); }
+
+/* ================================================================
+   ADMIN — DASHBOARD
+   ================================================================ */
+let ALL_SUBMISSIONS = [];
+let unsubscribeSnapshot = null;
+
+function renderDashboard(shell, user){
+  shell.innerHTML = "";
+  shell.appendChild(el("div",{class:"dash-head"},
+    el("div",{}, el("h1",{},"Dashboard Assessment"), el("div",{style:"color:var(--ink-muted);font-size:13px;margin-top:4px;"}, "Masuk sebagai " + user.email)),
+    el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan Notifikasi")
+  ));
+  shell.appendChild(el("div",{id:"settings-panel"}));
+
+  const statRow = el("div",{class:"stat-row"});
+  shell.appendChild(statRow);
+
+  const toolbar = el("div",{class:"toolbar"},
+    el("input",{type:"search", id:"search-input", placeholder:"Cari nama, NIK, atau surveyor…", oninput: renderTable}),
+    el("select",{id:"filter-jenis", onchange: renderTable},
+      el("option",{value:""},"Semua Jenis Form"),
+      el("option",{value:"full_assessment"},"Full Assessment"),
+      el("option",{value:"rapid_assessment"},"Rapid Assessment"),
+    ),
+    el("select",{id:"filter-status", onchange: renderTable},
+      el("option",{value:""},"Semua Status"),
+      el("option",{value:"pending"},"Menunggu Review"),
+      el("option",{value:"approved"},"Layak Dibantu"),
+      el("option",{value:"attention"},"Perlu Perhatian Khusus"),
+      el("option",{value:"rejected"},"Tidak Layak"),
+    ),
+  );
+  shell.appendChild(toolbar);
+
+  const tableWrap = el("div",{class:"data-table-wrap", id:"table-wrap"});
+  shell.appendChild(tableWrap);
+
+  if(unsubscribeSnapshot) unsubscribeSnapshot();
+  tableWrap.innerHTML = "";
+  tableWrap.appendChild(el("div",{class:"empty-state"}, el("div",{class:"big"},"⏳"), "Memuat data…"));
+
+  unsubscribeSnapshot = db.collection(COLLECTION).orderBy("submittedAt","desc").onSnapshot(snap=>{
+    // "awaiting_review" (menunggu surveyor) & "surveyor_reviewed" (sudah direview, belum disubmit
+    // massal) sengaja belum ditampilkan ke Admin — sesuai alur: baru masuk dashboard setelah
+    // surveyor menekan "Kirim ke Admin" / "Submit Semua ke Admin".
+    ALL_SUBMISSIONS = snap.docs.map(d=>({ id:d.id, ...d.data() }))
+      .filter(s => s.status_review !== "awaiting_review" && s.status_review !== "surveyor_reviewed");
+    renderStats(statRow);
+    renderTable();
+  }, err=>{
+    tableWrap.innerHTML = "";
+    tableWrap.appendChild(el("div",{class:"empty-state"}, el("div",{class:"big"},"⚠️"), "Gagal memuat data: " + friendlyFirestoreError(err)));
+  });
+}
+
+async function toggleSettingsPanel(){
+  const box = $("#settings-panel");
+  if(!box) return;
+  if(box.childElementCount > 0){ box.innerHTML = ""; return; }
+  box.innerHTML = "";
+  box.appendChild(el("div",{class:"setup-banner"}, "Memuat pengaturan…"));
+  try{
+    const doc = await db.collection("app_settings").doc("notifications").get();
+    const emails = doc.exists ? (doc.data().emails || "") : "";
+    box.innerHTML = "";
+    box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
+      el("div",{class:"step-head"},
+        el("div",{class:"eyebrow"}, "Pengaturan"),
+        el("h2",{style:"font-size:18px;"}, "Email Notifikasi Admin"),
+        el("div",{class:"desc"}, "Email yang menerima notifikasi setiap ada assessment baru masuk. Pisahkan dengan koma untuk lebih dari satu alamat. Membutuhkan ekstensi Firebase \"Trigger Email from Firestore\" terpasang pada project ini.")
+      ),
+      el("input",{type:"text", id:"settings-email-input", value: emails, placeholder:"admin@contoh.org, kepala.program@contoh.org",
+        style:"width:100%;padding:10px 12px;border:1.5px solid var(--line-strong);border-radius:8px;"}),
+      el("div",{style:"margin-top:12px;"},
+        el("button",{class:"btn btn-primary", onclick: async ()=>{
+          const val = $("#settings-email-input").value.trim();
+          try{
+            await db.collection("app_settings").doc("notifications").set({ emails: val }, {merge:true});
+            toast("Pengaturan disimpan.");
+          } catch(err){ toast("Gagal menyimpan: " + friendlyFirestoreError(err)); }
+        }}, "Simpan")
+      )
+    ));
+  } catch(err){
+    box.innerHTML = "";
+    box.appendChild(el("div",{class:"error-box"}, "Gagal memuat pengaturan: " + friendlyFirestoreError(err)));
+  }
+}
+
+function renderStats(statRow){
+  const total = ALL_SUBMISSIONS.length;
+  const pending = ALL_SUBMISSIONS.filter(s=>statusOf(s)==="pending").length;
+  const approved = ALL_SUBMISSIONS.filter(s=>statusOf(s)==="approved").length;
+  const rejected = ALL_SUBMISSIONS.filter(s=>statusOf(s)==="rejected").length;
+  statRow.innerHTML = "";
+  [
+    ["Total Formulir Masuk", total],
+    ["Menunggu Review", pending],
+    ["Layak Dibantu", approved],
+    ["Tidak Layak", rejected],
+  ].forEach(([label,n])=>{
+    statRow.appendChild(el("div",{class:"stat-card"}, el("div",{class:"n mono"}, String(n)), el("div",{class:"l"}, label)));
+  });
+}
+
+function statusOf(sub){ return sub.admin_status || sub.status_review || "pending"; }
+
+function badgeFor(status){
+  const map = {
+    pending: ["badge-pending","Menunggu Review"],
+    approved: ["badge-approved","Layak Dibantu"],
+    attention: ["badge-attention","Perlu Perhatian Khusus"],
+    rejected: ["badge-rejected","Tidak Layak"],
+  };
+  const [cls,label] = map[status] || map.pending;
+  return el("span",{class:"badge "+cls}, el("span",{class:"dot"}), label);
+}
+
+function renderTable(){
+  const tableWrap = $("#table-wrap");
+  if(!tableWrap) return;
+  const q = ($("#search-input")?.value || "").toLowerCase();
+  const statusFilter = $("#filter-status")?.value || "";
+  const jenisFilter = $("#filter-jenis")?.value || "";
+
+  let rows = ALL_SUBMISSIONS.filter(s=>{
+    const surveyorName = s.nama_surveyor || s.nama_petugas_ttd || s.program_petugas || "";
+    const matchQ = !q || [s.nama_pengaju, s.nik, surveyorName].join(" ").toLowerCase().includes(q);
+    const matchStatus = !statusFilter || statusOf(s) === statusFilter;
+    const matchJenis = !jenisFilter || s.jenis_form === jenisFilter;
+    return matchQ && matchStatus && matchJenis;
+  });
+
+  tableWrap.innerHTML = "";
+  if(rows.length === 0){
+    tableWrap.appendChild(el("div",{class:"empty-state"}, el("div",{class:"big"},"🗂️"), "Belum ada data yang cocok."));
+    return;
+  }
+
+  const table = el("table",{class:"data-table"});
+  table.appendChild(el("thead",{}, el("tr",{},
+    el("th",{},"Jenis Form"), el("th",{},"Nama Pengaju"), el("th",{},"NIK"), el("th",{},"Surveyor / Petugas"),
+    el("th",{},"Kategori HK"), el("th",{},"Kelayakan"), el("th",{},"Status Admin")
+  )));
+  const tbody = el("tbody",{});
+  rows.forEach(sub=>{
+    const surveyorName = sub.nama_surveyor || sub.nama_petugas_ttd || sub.program_petugas || "—";
+    tbody.appendChild(el("tr",{class:"rowlink", onclick:()=>openDetail(sub)},
+      el("td",{}, jenisFormLabel(sub.jenis_form)),
+      el("td",{}, el("strong",{}, sub.nama_pengaju || "—")),
+      el("td",{class:"mono"}, sub.nik || "—"),
+      el("td",{}, surveyorName),
+      el("td",{}, sub.kategori_had_kifayah || "—"),
+      el("td",{}, sub.kelayakan || "—"),
+      el("td",{}, badgeFor(statusOf(sub))),
+    ));
+  });
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+}
+function jenisFormLabel(jenis){
+  const map = { full_assessment: "Full", rapid_assessment: "Rapid", community_development: "CommDev" };
+  return map[jenis] || jenis || "—";
+}
+
+/* ---------------- Detail Drawer ---------------- */
+function renderFullDetail(bodyEl, sub){
+  bodyEl.appendChild(dsection("Identitas Pengaju", [
+    ["NIK", sub.nik], ["Nama Panggilan", sub.nama_panggilan], ["Jenis Kelamin", sub.jenis_kelamin],
+    ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Telepon", sub.telp],
+    ["Alamat", [sub.alamat_jalan, sub.alamat_kel, sub.alamat_kec, sub.alamat_kota, sub.alamat_prov].filter(Boolean).join(", ")],
+  ]));
+  bodyEl.appendChild(dsection("Ekonomi Keluarga", [
+    ["Total Penghasilan / Bulan", fmtRupiah(sub.total_penghasilan)],
+    ["Total Pengeluaran / Bulan", fmtRupiah(sub.total_pengeluaran)],
+    ["Jumlah Tanggungan", sub.jumlah_tanggungan],
+    ["Pendapatan per Kapita", fmtRupiah(sub.pendapatan_per_kapita)],
+    ["Kategori Had Kifayah", sub.kategori_had_kifayah],
+    ["Pekerjaan Kepala Keluarga", sub.pekerjaan_kepala],
+    ["Kondisi Kepala Keluarga", sub.kondisi_kepala],
+  ]));
+  bodyEl.appendChild(dsection("Rumah Tinggal", [
+    ["Kepemilikan", sub.kepemilikan_rumah], ["Dinding", sub.dinding], ["Lantai", sub.lantai],
+    ["Atap", sub.atap], ["Sumber Air", sub.sumber_air], ["Penerangan", sub.penerangan],
+    ["Lokasi", sub.lokasi_rumah],
+  ]));
+  bodyEl.appendChild(dsection("Resume Surveyor", [
+    ["Jenis Permohonan", sub.jenis_permohonan],
+    ["Asnaf", (sub.asnaf||[]).join(", ")],
+    ["Kelayakan (Surveyor)", sub.kelayakan],
+    ["Alasan", sub.alasan],
+    ["Catatan Surveyor", sub.catatan_surveyor],
+    ["Bentuk Bantuan", (sub.bentuk_bantuan||[]).join(", ")],
+    ["Sifat Bantuan", (sub.sifat_bantuan||[]).join(", ")],
+    ["Nama Surveyor", sub.nama_surveyor],
+    ["Tanggal Survey", sub.tgl_survey],
+  ]));
+}
+
+function renderRapidDetail(bodyEl, sub){
+  bodyEl.appendChild(dsection("Data Program", [
+    ["Nama Program", sub.program_nama], ["Tanggal Pelaksanaan", sub.program_tgl],
+    ["Lokasi Penyaluran", sub.program_lokasi], ["Petugas / Amil", sub.program_petugas],
+  ]));
+  bodyEl.appendChild(dsection("Identitas Calon Penerima Manfaat", [
+    ["NIK", sub.nik], ["Alamat", sub.alamat], ["Jenis Kelamin", sub.jenis_kelamin],
+    ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Jml. Tanggungan", sub.jumlah_tanggungan],
+  ]));
+  bodyEl.appendChild(dsection("Indikator Ekonomi", [
+    ["Pekerjaan Kepala Keluarga", sub.pekerjaan_kepala === "Lainnya" ? sub.pekerjaan_kepala_lainnya : sub.pekerjaan_kepala],
+    ["Total Penghasilan / Bulan", fmtRupiah(sub.total_penghasilan)],
+    ["Pendapatan / Kapita / Bulan", fmtRupiah(sub.pendapatan_per_kapita)],
+    ["Kategori Had Kifayah", sub.kategori_had_kifayah],
+    ["Kondisi Kepala Keluarga", sub.kondisi_kepala],
+    ["Kepemilikan Rumah", sub.kepemilikan_rumah],
+    ["Kondisi Dinding", sub.kondisi_dinding],
+    ["Jumlah Hutang", fmtRupiah(sub.jumlah_hutang)],
+    ["Sisa Hutang", fmtRupiah(sub.sisa_hutang)],
+    ["Jumlah Tabungan", fmtRupiah(sub.jumlah_tabungan)],
+    ["Jumlah Aset Lancar", fmtRupiah(sub.jumlah_aset_lancar)],
+  ]));
+  bodyEl.appendChild(dsection("Kategori Asnaf & Rekomendasi", [
+    ["Kategori Asnaf", (sub.kategori_asnaf||[]).join(", ")],
+    ["Kelayakan (Surveyor)", sub.kelayakan],
+    ["Catatan Petugas", sub.catatan_petugas],
+    ["Petugas Pelaksana", sub.nama_petugas_ttd], ["No. Telepon Petugas", sub.phone_petugas_ttd],
+    ["No. Telepon Pengaju", sub.phone_pengaju_ttd],
+    ["Kota, Tanggal", sub.kota_tanggal],
+  ]));
+  if(sub.ttd_petugas || sub.ttd_pengaju){
+    const sigGrid = el("div",{class:"dgrid"});
+    if(sub.ttd_petugas) sigGrid.appendChild(el("div",{}, el("div",{class:"k"},"Tanda Tangan Petugas"), el("img",{src:sub.ttd_petugas, style:"max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;margin-top:4px;"})));
+    if(sub.ttd_pengaju) sigGrid.appendChild(el("div",{}, el("div",{class:"k"},"Tanda Tangan Penerima Manfaat"), el("img",{src:sub.ttd_pengaju, style:"max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;margin-top:4px;"})));
+    bodyEl.appendChild(el("div",{class:"dsection"}, el("h4",{},"Tanda Tangan"), sigGrid));
+  }
+}
+
+function openDetail(sub){
+  const backdrop = el("div",{class:"drawer-backdrop", onclick:closeDetail});
+  const drawer = el("div",{class:"drawer", id:"detail-drawer"});
+  drawer.appendChild(el("div",{class:"drawer-head"},
+    el("h3",{}, sub.nama_pengaju || "Detail Assessment"),
+    el("button",{onclick:closeDetail}, "✕")
+  ));
+  const bodyEl = el("div",{class:"drawer-body"});
+  drawer.appendChild(bodyEl);
+
+  if(sub.jenis_form === "rapid_assessment") renderRapidDetail(bodyEl, sub);
+  else renderFullDetail(bodyEl, sub);
+
+  const actionSection = el("div",{class:"dsection"},
+    el("h4",{},"Tindakan Admin"),
+    el("div",{class:"admin-action-bar"},
+      el("button",{class:"btn btn-primary", onclick:()=>updateStatus(sub,"approved")}, "Tandai Layak Dibantu"),
+      el("button",{class:"btn btn-accent", onclick:()=>updateStatus(sub,"attention")}, "Perlu Perhatian Khusus"),
+      el("button",{class:"btn btn-danger", onclick:()=>updateStatus(sub,"rejected")}, "Tandai Tidak Layak"),
+      el("button",{class:"btn btn-ghost", onclick:()=>generateAssessmentPDF(sub)}, "🖨️ Cetak PDF"),
+    )
+  );
+  bodyEl.appendChild(actionSection);
+
+  document.body.appendChild(backdrop);
+  document.body.appendChild(drawer);
+}
+function closeDetail(){
+  $$(".drawer-backdrop").forEach(n=>n.remove());
+  $$(".drawer").forEach(n=>n.remove());
+}
+function dsection(title, pairs){
+  const grid = el("div",{class:"dgrid"});
+  pairs.forEach(([k,v])=>{
+    grid.appendChild(el("div",{}, el("div",{class:"k"}, k), el("div",{class:"v"}, (v===undefined||v===null||v==="") ? "—" : String(v))));
+  });
+  return el("div",{class:"dsection"}, el("h4",{}, title), grid);
+}
+async function updateStatus(sub, status){
+  try{
+    await db.collection(COLLECTION).doc(sub.id).update({ admin_status: status });
+    toast("Status diperbarui.");
+    closeDetail();
+  } catch(err){
+    toast("Gagal memperbarui status: " + friendlyFirestoreError(err));
+  }
+}
+
+/* ---------------- Cetak PDF (jsPDF, murni di browser) ---------------- */
+function badgeLabelText(status){
+  const map = { pending:"Menunggu Review", approved:"Layak Dibantu", attention:"Perlu Perhatian Khusus", rejected:"Tidak Layak" };
+  return map[status] || status || "—";
+}
+function generateAssessmentPDF(sub){
+  if(typeof window.jspdf === "undefined"){ toast("Modul PDF gagal dimuat (periksa koneksi internet)."); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  let y = 18;
+
+  doc.setFont("helvetica","bold"); doc.setFontSize(14);
+  doc.text("Had Kifayah — Puskas BAZNAS", 14, y); y += 6;
+  doc.setFont("helvetica","normal"); doc.setFontSize(11);
+  doc.text(jenisFormLabel(sub.jenis_form) + " Assessment — " + (sub.nama_pengaju || "-"), 14, y); y += 10;
+
+  const addSection = (title, pairs) => {
+    if(y > 265){ doc.addPage(); y = 18; }
+    doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.text(title, 14, y); y += 6;
+    doc.setFont("helvetica","normal"); doc.setFontSize(10);
+    pairs.forEach(([k,v])=>{
+      if(y > 275){ doc.addPage(); y = 18; }
+      const text = `${k}: ${v==null || v==="" ? "-" : v}`;
+      const lines = doc.splitTextToSize(text, 180);
+      doc.text(lines, 14, y);
+      y += 5 * lines.length;
+    });
+    y += 4;
+  };
+
+  if(sub.jenis_form === "rapid_assessment"){
+    addSection("Data Program", [
+      ["Nama Program", sub.program_nama], ["Tanggal", sub.program_tgl],
+      ["Lokasi", sub.program_lokasi], ["Petugas", sub.program_petugas],
+    ]);
+    addSection("Identitas", [
+      ["NIK", sub.nik], ["Alamat", sub.alamat], ["Jenis Kelamin", sub.jenis_kelamin],
+      ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Telepon", sub.telp],
+      ["Muallaf", sub.is_muallaf ? `Ya, sejak ${sub.muallaf_tahun||"-"}` : "Tidak"],
+    ]);
+    addSection("Ekonomi", [
+      ["Pekerjaan Kepala Keluarga", sub.pekerjaan_kepala === "Lainnya" ? sub.pekerjaan_kepala_lainnya : sub.pekerjaan_kepala],
+      ["Total Penghasilan/Bulan", fmtRupiah(sub.total_penghasilan)],
+      ["Pendapatan/Kapita/Bulan", fmtRupiah(sub.pendapatan_per_kapita)],
+      ["Kategori Had Kifayah", sub.kategori_had_kifayah],
+      ["Kondisi Kepala Keluarga", sub.kondisi_kepala],
+      ["Kepemilikan Rumah", sub.kepemilikan_rumah], ["Dinding", sub.kondisi_dinding],
+      ["Jumlah Hutang", fmtRupiah(sub.jumlah_hutang)], ["Sisa Hutang", fmtRupiah(sub.sisa_hutang)],
+      ["Tabungan", fmtRupiah(sub.jumlah_tabungan)], ["Aset Lancar", fmtRupiah(sub.jumlah_aset_lancar)],
+    ]);
+    addSection("Kategori Asnaf & Rekomendasi", [
+      ["Kategori Asnaf", (sub.kategori_asnaf||[]).join(", ") || "-"],
+      ["Kelayakan (Surveyor)", sub.kelayakan], ["Catatan Petugas", sub.catatan_petugas],
+      ["Diisi Oleh", sub.diisi_oleh === "peserta_sendiri" ? "Peserta Sendiri (link)" : "Surveyor"],
+      ["Status Admin", badgeLabelText(statusOf(sub))],
+    ]);
+  } else {
+    addSection("Identitas Pengaju", [
+      ["NIK", sub.nik], ["Nama Panggilan", sub.nama_panggilan], ["Jenis Kelamin", sub.jenis_kelamin],
+      ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Telepon", sub.telp],
+      ["Alamat", [sub.alamat_jalan, sub.alamat_kel, sub.alamat_kec, sub.alamat_kota, sub.alamat_prov].filter(Boolean).join(", ")],
+    ]);
+    addSection("Ekonomi Keluarga", [
+      ["Total Penghasilan/Bulan", fmtRupiah(sub.total_penghasilan)],
+      ["Total Pengeluaran/Bulan", fmtRupiah(sub.total_pengeluaran)],
+      ["Jumlah Tanggungan", sub.jumlah_tanggungan],
+      ["Pendapatan/Kapita", fmtRupiah(sub.pendapatan_per_kapita)],
+      ["Kategori Had Kifayah", sub.kategori_had_kifayah],
+    ]);
+    addSection("Resume Surveyor", [
+      ["Asnaf", (sub.asnaf||[]).join(", ")], ["Kelayakan", sub.kelayakan],
+      ["Alasan", sub.alasan], ["Catatan Surveyor", sub.catatan_surveyor],
+      ["Nama Surveyor", sub.nama_surveyor], ["Status Admin", badgeLabelText(statusOf(sub))],
+    ]);
+  }
+
+  const addSignature = (label, dataUrl) => {
+    if(!dataUrl) return;
+    if(y > 230){ doc.addPage(); y = 18; }
+    doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    doc.text(label, 14, y); y += 4;
+    try{ doc.addImage(dataUrl, "PNG", 14, y, 60, 26); } catch(e){ /* lewati jika format gambar tak terbaca */ }
+    y += 30;
+  };
+  addSignature("Tanda Tangan Penerima Manfaat:", sub.ttd_pengaju);
+  addSignature("Tanda Tangan Petugas:", sub.ttd_petugas);
+
+  doc.save(`assessment-${(sub.nama_pengaju||"data").replace(/\s+/g,"_")}.pdf`);
+}
+
+/* ================================================================
+   INIT
+   ================================================================ */
+route();
+</script>
+</body>
+</html>
