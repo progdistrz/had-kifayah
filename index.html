@@ -403,6 +403,43 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
 .sigpad-hint{ font-size:11.5px; color: var(--ink-faint); }
 .sigpad-clear{ background:none; border:none; color: var(--danger); font-size:12px; cursor:pointer; font-weight:600; }
 .inline-btn{ background:none; border:none; color: var(--primary); font-size:12px; font-weight:600; cursor:pointer; padding:0; margin-top:6px; }
+
+/* Tahap 2: pilihan cara pengisian — dua kartu persegi berdampingan */
+.mode-choices{ display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-top:8px; max-width:620px; }
+.mode-card{
+  aspect-ratio: 1 / 1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; background:#fff; border:2px solid var(--line-strong); border-radius: var(--radius-l);
+  padding:22px; cursor:pointer; font-family:inherit; color:inherit;
+  transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.mode-card:hover{ border-color: var(--primary); transform: translateY(-3px); box-shadow: var(--shadow-card); }
+.mode-card:focus-visible{ outline:2px solid var(--primary); outline-offset:2px; }
+.mode-card-icon{ font-size:38px; margin-bottom:14px; line-height:1; }
+.mode-card h3{ font-size:15.5px; margin-bottom:8px; }
+.mode-card p{ font-size:12.5px; color: var(--ink-muted); line-height:1.5; }
+@media (max-width:560px){
+  .mode-choices{ grid-template-columns:1fr; max-width:340px; margin-left:auto; margin-right:auto; }
+  .mode-card{ aspect-ratio:auto; padding:26px 20px; }
+}
+
+/* Link mode: kotak salin link, daftar review & riwayat */
+.link-box{ display:flex; gap:10px; margin-top:8px; }
+.link-box input{
+  flex:1; padding:10px 12px; border:1.5px solid var(--line-strong); border-radius:8px;
+  font-family: var(--font-mono); font-size:12.5px; background: var(--surface-sunken); color: var(--ink);
+}
+.review-item{
+  display:flex; justify-content:space-between; align-items:center; gap:12px;
+  padding:12px 14px; border:1px solid var(--line); border-radius: var(--radius-m); margin-bottom:8px; background:#fff;
+}
+.review-item-name{ font-weight:600; font-size:14px; }
+.review-item-sub{ font-size:12px; color: var(--ink-muted); margin-top:2px; }
+.btn-sm{ padding:7px 14px; font-size:12.5px; }
+
+/* Badge Kategori Asnaf (otomatis) */
+.asnaf-badges{ display:flex; flex-wrap:wrap; gap:8px; }
+.asnaf-badge{ background: var(--accent-tint); color:#6B4E10; border:1px solid #E9D7A6; padding:6px 13px; border-radius:999px; font-size:12.5px; font-weight:700; }
+.asnaf-badge-empty{ background: var(--surface-sunken); color: var(--ink-faint); border:1px solid var(--line); font-weight:500; }
 </style>
 </head>
 <body>
@@ -808,7 +845,9 @@ function renderSurveyPage(app){
 }
 
 function topbar(isAdmin){
-  const nav = el("nav",{},
+  // isAdmin: true = tampil "Keluar" (dashboard admin), false = tampil "Login Admin" (surveyor),
+  // "public" = tanpa navigasi sama sekali (link mandiri utk calon peserta — tidak perlu tahu ada admin/beranda)
+  const nav = isAdmin === "public" ? null : el("nav",{},
     el("a",{href:"#/"}, "Beranda"),
     isAdmin===true ? el("button",{onclick:doLogout}, "Keluar") :
     isAdmin===false ? el("a",{href:"#/admin"}, "Login Admin") : null
@@ -1251,8 +1290,19 @@ function renderRapidBody(shell){
     shell.appendChild(renderDirectForm(shell));
   } else {
     shell.appendChild(renderLinkMode(shell));
-    startReviewListener(rapidSession.id);
   }
+  shell.appendChild(renderSessionHistoryPanel());
+  startSessionListener(rapidSession.id);
+}
+function renderSessionHistoryPanel(){
+  return el("div",{class:"step-panel", style:"margin-top:20px;"},
+    el("div",{class:"step-head"},
+      el("div",{class:"eyebrow"}, "Riwayat"),
+      el("h2",{style:"font-size:19px;"}, "Terkirim ke Admin (Sesi Ini)"),
+      el("div",{class:"desc"}, "Data yang sudah masuk ke Dashboard Admin pada sesi ini. Hanya untuk dilihat — tidak ada tindakan di sini.")
+    ),
+    el("div",{id:"session-history-list"}, el("div",{class:"empty-state"}, "Memuat…"))
+  );
 }
 
 /* ---------------- Tahap 1: Data Program + tanda tangan sesi ---------------- */
@@ -1607,7 +1657,7 @@ function renderDirectForm(shell){
   panel.appendChild(sigGrid);
 
   panel.appendChild(el("div",{class:"step-foot"},
-    el("button",{class:"btn btn-ghost", onclick:()=>{ rapidMode=null; renderRapidBody(shell); }}, "← Ganti Cara Pengisian"),
+    el("button",{class:"btn btn-ghost", onclick:()=>{ rapidMode=null; if(reviewUnsub){reviewUnsub();reviewUnsub=null;} renderRapidBody(shell); }}, "← Ganti Cara Pengisian"),
     el("button",{class:"btn btn-primary", id:"rapid-submit-btn", onclick:()=>submitDirect(shell)}, "Kirim ke Admin →")
   ));
   return panel;
@@ -1707,20 +1757,40 @@ function renderLinkMode(shell){
   return wrap;
 }
 
-function startReviewListener(sessionId){
+function startSessionListener(sessionId){
   if(reviewUnsub) reviewUnsub();
   if(FIREBASE_NOT_CONFIGURED){
     const pendingEl = $("#review-pending-list");
     if(pendingEl){ pendingEl.innerHTML=""; pendingEl.appendChild(el("div",{class:"empty-state"}, "Firebase belum dikonfigurasi — daftar tidak tersedia.")); }
+    const histEl = $("#session-history-list");
+    if(histEl){ histEl.innerHTML=""; histEl.appendChild(el("div",{class:"empty-state"}, "Firebase belum dikonfigurasi — riwayat tidak tersedia.")); }
     return;
   }
   reviewUnsub = db.collection(COLLECTION).where("session_id","==",sessionId).onSnapshot(snap=>{
     const docs = snap.docs.map(d=>({id:d.id, ...d.data()}));
-    renderReviewPendingList(docs.filter(d=>d.status_review === "awaiting_review"));
-    renderReviewReadyList(docs.filter(d=>d.status_review === "surveyor_reviewed"));
+    if($("#review-pending-list")) renderReviewPendingList(docs.filter(d=>d.status_review === "awaiting_review"));
+    if($("#review-ready-list")) renderReviewReadyList(docs.filter(d=>d.status_review === "surveyor_reviewed"));
+    if($("#session-history-list")) renderSessionHistoryList(docs.filter(d=>d.status_review !== "awaiting_review" && d.status_review !== "surveyor_reviewed"));
   }, err=>{
     const pendingEl = $("#review-pending-list");
     if(pendingEl){ pendingEl.innerHTML=""; pendingEl.appendChild(el("div",{class:"empty-state"}, "Gagal memuat: "+friendlyFirestoreError(err))); }
+    const histEl = $("#session-history-list");
+    if(histEl){ histEl.innerHTML=""; histEl.appendChild(el("div",{class:"empty-state"}, "Gagal memuat: "+friendlyFirestoreError(err))); }
+  });
+}
+function renderSessionHistoryList(list){
+  const box = $("#session-history-list");
+  if(!box) return;
+  box.innerHTML = "";
+  if(list.length === 0){ box.appendChild(el("div",{class:"empty-state"}, "Belum ada data yang dikirim ke Admin pada sesi ini.")); return; }
+  list.forEach(sub=>{
+    box.appendChild(el("div",{class:"review-item"},
+      el("div",{},
+        el("div",{class:"review-item-name"}, sub.nama_pengaju || sub.nama || "—"),
+        el("div",{class:"review-item-sub"}, `${sub.kelayakan||"—"} · NIK ${sub.nik||"—"}`),
+      ),
+      badgeFor(statusOf(sub))
+    ));
   });
 }
 function renderReviewPendingList(list){
@@ -1851,7 +1921,7 @@ let sigSelf = null;
 
 function renderSelfFillPage(app, sessionId){
   const wrap = el("div",{});
-  wrap.appendChild(topbar(false));
+  wrap.appendChild(topbar("public"));
   const shell = el("div",{class:"shell", id:"selffill-shell", style:"max-width:720px;"});
   wrap.appendChild(shell);
   app.appendChild(wrap);
@@ -2331,6 +2401,12 @@ function badgeLabelText(status){
 }
 function generateAssessmentPDF(sub){
   if(typeof window.jspdf === "undefined"){ toast("Modul PDF gagal dimuat (periksa koneksi internet)."); return; }
+  if(sub.jenis_form === "rapid_assessment") generateRapidAssessmentPDF(sub);
+  else generateFullAssessmentPDF(sub);
+}
+
+/* ---------------- PDF Full Assessment (ringkasan per-bagian) ---------------- */
+function generateFullAssessmentPDF(sub){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   let y = 18;
@@ -2338,7 +2414,7 @@ function generateAssessmentPDF(sub){
   doc.setFont("helvetica","bold"); doc.setFontSize(14);
   doc.text("Had Kifayah — Puskas BAZNAS", 14, y); y += 6;
   doc.setFont("helvetica","normal"); doc.setFontSize(11);
-  doc.text(jenisFormLabel(sub.jenis_form) + " Assessment — " + (sub.nama_pengaju || "-"), 14, y); y += 10;
+  doc.text("Full Assessment — " + (sub.nama_pengaju || "-"), 14, y); y += 10;
 
   const addSection = (title, pairs) => {
     if(y > 265){ doc.addPage(); y = 18; }
@@ -2355,51 +2431,23 @@ function generateAssessmentPDF(sub){
     y += 4;
   };
 
-  if(sub.jenis_form === "rapid_assessment"){
-    addSection("Data Program", [
-      ["Nama Program", sub.program_nama], ["Tanggal", sub.program_tgl],
-      ["Lokasi", sub.program_lokasi], ["Petugas", sub.program_petugas],
-    ]);
-    addSection("Identitas", [
-      ["NIK", sub.nik], ["Alamat", sub.alamat], ["Jenis Kelamin", sub.jenis_kelamin],
-      ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Telepon", sub.telp],
-      ["Muallaf", sub.is_muallaf ? `Ya, sejak ${sub.muallaf_tahun||"-"}` : "Tidak"],
-    ]);
-    addSection("Ekonomi", [
-      ["Pekerjaan Kepala Keluarga", sub.pekerjaan_kepala === "Lainnya" ? sub.pekerjaan_kepala_lainnya : sub.pekerjaan_kepala],
-      ["Total Penghasilan/Bulan", fmtRupiah(sub.total_penghasilan)],
-      ["Pendapatan/Kapita/Bulan", fmtRupiah(sub.pendapatan_per_kapita)],
-      ["Kategori Had Kifayah", sub.kategori_had_kifayah],
-      ["Kondisi Kepala Keluarga", sub.kondisi_kepala],
-      ["Kepemilikan Rumah", sub.kepemilikan_rumah], ["Dinding", sub.kondisi_dinding],
-      ["Jumlah Hutang", fmtRupiah(sub.jumlah_hutang)], ["Sisa Hutang", fmtRupiah(sub.sisa_hutang)],
-      ["Tabungan", fmtRupiah(sub.jumlah_tabungan)], ["Aset Lancar", fmtRupiah(sub.jumlah_aset_lancar)],
-    ]);
-    addSection("Kategori Asnaf & Rekomendasi", [
-      ["Kategori Asnaf", (sub.kategori_asnaf||[]).join(", ") || "-"],
-      ["Kelayakan (Surveyor)", sub.kelayakan], ["Catatan Petugas", sub.catatan_petugas],
-      ["Diisi Oleh", sub.diisi_oleh === "peserta_sendiri" ? "Peserta Sendiri (link)" : "Surveyor"],
-      ["Status Admin", badgeLabelText(statusOf(sub))],
-    ]);
-  } else {
-    addSection("Identitas Pengaju", [
-      ["NIK", sub.nik], ["Nama Panggilan", sub.nama_panggilan], ["Jenis Kelamin", sub.jenis_kelamin],
-      ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Telepon", sub.telp],
-      ["Alamat", [sub.alamat_jalan, sub.alamat_kel, sub.alamat_kec, sub.alamat_kota, sub.alamat_prov].filter(Boolean).join(", ")],
-    ]);
-    addSection("Ekonomi Keluarga", [
-      ["Total Penghasilan/Bulan", fmtRupiah(sub.total_penghasilan)],
-      ["Total Pengeluaran/Bulan", fmtRupiah(sub.total_pengeluaran)],
-      ["Jumlah Tanggungan", sub.jumlah_tanggungan],
-      ["Pendapatan/Kapita", fmtRupiah(sub.pendapatan_per_kapita)],
-      ["Kategori Had Kifayah", sub.kategori_had_kifayah],
-    ]);
-    addSection("Resume Surveyor", [
-      ["Asnaf", (sub.asnaf||[]).join(", ")], ["Kelayakan", sub.kelayakan],
-      ["Alasan", sub.alasan], ["Catatan Surveyor", sub.catatan_surveyor],
-      ["Nama Surveyor", sub.nama_surveyor], ["Status Admin", badgeLabelText(statusOf(sub))],
-    ]);
-  }
+  addSection("Identitas Pengaju", [
+    ["NIK", sub.nik], ["Nama Panggilan", sub.nama_panggilan], ["Jenis Kelamin", sub.jenis_kelamin],
+    ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Telepon", sub.telp],
+    ["Alamat", [sub.alamat_jalan, sub.alamat_kel, sub.alamat_kec, sub.alamat_kota, sub.alamat_prov].filter(Boolean).join(", ")],
+  ]);
+  addSection("Ekonomi Keluarga", [
+    ["Total Penghasilan/Bulan", fmtRupiah(sub.total_penghasilan)],
+    ["Total Pengeluaran/Bulan", fmtRupiah(sub.total_pengeluaran)],
+    ["Jumlah Tanggungan", sub.jumlah_tanggungan],
+    ["Pendapatan/Kapita", fmtRupiah(sub.pendapatan_per_kapita)],
+    ["Kategori Had Kifayah", sub.kategori_had_kifayah],
+  ]);
+  addSection("Resume Surveyor", [
+    ["Asnaf", (sub.asnaf||[]).join(", ")], ["Kelayakan", sub.kelayakan],
+    ["Alasan", sub.alasan], ["Catatan Surveyor", sub.catatan_surveyor],
+    ["Nama Surveyor", sub.nama_surveyor], ["Status Admin", badgeLabelText(statusOf(sub))],
+  ]);
 
   const addSignature = (label, dataUrl) => {
     if(!dataUrl) return;
@@ -2412,7 +2460,165 @@ function generateAssessmentPDF(sub){
   addSignature("Tanda Tangan Penerima Manfaat:", sub.ttd_pengaju);
   addSignature("Tanda Tangan Petugas:", sub.ttd_petugas);
 
-  doc.save(`assessment-${(sub.nama_pengaju||"data").replace(/\s+/g,"_")}.pdf`);
+  doc.save(`full-assessment-${(sub.nama_pengaju||"data").replace(/\s+/g,"_")}.pdf`);
+}
+
+/* ---------------- PDF Rapid Assessment — mengikuti tata letak form kertas asli ---------------- */
+function pdfCheckboxGroup(doc, x, y, maxWidth, items, isCheckedFn){
+  const boxSize = 3.3, gapAfterBox = 1.8, itemGap = 7, lineHeight = 6.2;
+  doc.setFont("helvetica","normal"); doc.setFontSize(8.7);
+  let curX = x, curY = y;
+  items.forEach(label=>{
+    const textW = doc.getTextWidth(label);
+    const itemW = boxSize + gapAfterBox + textW;
+    if(curX + itemW > x + maxWidth){ curX = x; curY += lineHeight; }
+    const checked = isCheckedFn(label);
+    doc.setDrawColor(60,60,60);
+    doc.rect(curX, curY - boxSize + 0.8, boxSize, boxSize);
+    if(checked){
+      doc.setFillColor(20,92,70);
+      doc.rect(curX+0.5, curY - boxSize + 1.3, boxSize-1, boxSize-1, "F");
+      doc.setFillColor(0,0,0);
+    }
+    doc.setTextColor(20,20,20);
+    doc.text(label, curX+boxSize+gapAfterBox, curY);
+    curX += itemW + itemGap;
+  });
+  return curY + lineHeight;
+}
+function pdfLabel(doc, x, y, text){
+  doc.setFont("helvetica","bold"); doc.setFontSize(8.7);
+  doc.setTextColor(20,20,20);
+  doc.text(text, x, y);
+  return y + 4.8;
+}
+function pdfFieldPair(doc, x, y, colWidth, label1, val1, label2, val2){
+  doc.setFont("helvetica","bold"); doc.setFontSize(8.3);
+  doc.setTextColor(90,90,90);
+  doc.text(label1, x, y);
+  if(label2) doc.text(label2, x+colWidth, y);
+  doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+  doc.setTextColor(15,15,15);
+  doc.text(String(val1==null||val1===""?"-":val1), x, y+4.6);
+  if(label2) doc.text(String(val2==null||val2===""?"-":val2), x+colWidth, y+4.6);
+  return y + 9.5;
+}
+function pdfFieldFull(doc, x, y, maxWidth, label, val){
+  doc.setFont("helvetica","bold"); doc.setFontSize(8.3);
+  doc.setTextColor(90,90,90);
+  doc.text(label, x, y);
+  doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+  doc.setTextColor(15,15,15);
+  const lines = doc.splitTextToSize(String(val==null||val===""?"-":val), maxWidth);
+  doc.text(lines, x, y+4.6);
+  return y + 4.6 + lines.length*4.6 + 1.5;
+}
+function pdfSectionHeader(doc, x, y, width, code, title){
+  doc.setFillColor(20,92,70);
+  doc.rect(x, y, width, 6.5, "F");
+  doc.setFont("helvetica","bold"); doc.setFontSize(9.5);
+  doc.setTextColor(255,255,255);
+  doc.text(`${code}. ${title}`, x+3, y+4.6);
+  doc.setTextColor(15,15,15);
+  return y + 6.5 + 6;
+}
+function generateRapidAssessmentPDF(sub){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const pageW = 210, marginX = 14, contentW = pageW - marginX*2, halfW = contentW/2 + 5;
+  let y = 16;
+
+  doc.setFont("helvetica","bold"); doc.setFontSize(13);
+  doc.setTextColor(15,15,15);
+  doc.text("FORM RAPID ASSESSMENT INDIVIDU", pageW/2, y, {align:"center"}); y += 5.5;
+  doc.setFont("helvetica","italic"); doc.setFontSize(9.5);
+  doc.setTextColor(90,90,90);
+  doc.text("Program Penyaluran Sekali Implementasi — Had Kifayah, Puskas BAZNAS", pageW/2, y, {align:"center"}); y += 9;
+  doc.setTextColor(15,15,15);
+
+  const ensureSpace = (needed) => { if(y + needed > 285){ doc.addPage(); y = 16; } };
+
+  // A. DATA PROGRAM
+  ensureSpace(28);
+  y = pdfSectionHeader(doc, marginX, y, contentW, "A", "DATA PROGRAM");
+  y = pdfFieldPair(doc, marginX, y, halfW, "Nama Program", sub.program_nama, "Tgl. Pelaksanaan", sub.program_tgl);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Lokasi Penyaluran", sub.program_lokasi, "Nama Petugas/Amil", sub.program_petugas);
+  y += 4;
+
+  // B. IDENTITAS CALON PENERIMA MANFAAT
+  ensureSpace(55);
+  y = pdfSectionHeader(doc, marginX, y, contentW, "B", "IDENTITAS CALON PENERIMA MANFAAT");
+  y = pdfFieldFull(doc, marginX, y, contentW, "Nama", sub.nama_pengaju || sub.nama);
+  y = pdfFieldFull(doc, marginX, y, contentW, "NIK", sub.nik);
+  y = pdfFieldFull(doc, marginX, y, contentW, "Alamat", sub.alamat);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Jenis Kelamin", sub.jenis_kelamin, "Usia", sub.usia ? sub.usia+" th" : "-");
+  y = pdfFieldPair(doc, marginX, y, halfW, "Status Pernikahan", sub.status_nikah, "Jml. Tanggungan Keluarga", sub.jumlah_tanggungan ? sub.jumlah_tanggungan+" orang" : "-");
+  y = pdfFieldPair(doc, marginX, y, halfW, "Muallaf", sub.is_muallaf ? `Ya, sejak ${sub.muallaf_tahun||"-"}` : "Tidak", "No. Telepon", sub.telp);
+  y += 4;
+
+  // C. INDIKATOR EKONOMI (KELAYAKAN CEPAT)
+  ensureSpace(55);
+  y = pdfSectionHeader(doc, marginX, y, contentW, "C", "INDIKATOR EKONOMI (KELAYAKAN CEPAT)");
+  y = pdfLabel(doc, marginX, y, "1. Pekerjaan Kepala Keluarga:");
+  const pekerjaanOpts = ["Menganggur","Buruh Serabutan","Karyawan Rendahan","Pedagang Kecil", "Lainnya: " + (sub.pekerjaan_kepala_lainnya || "…………")];
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, pekerjaanOpts, (label)=> label.startsWith("Lainnya") ? sub.pekerjaan_kepala === "Lainnya" : sub.pekerjaan_kepala === label) + 3;
+  y = pdfFieldPair(doc, marginX, y, halfW, "2. Total Penghasilan Keluarga/Bulan", fmtRupiah(sub.total_penghasilan), "3. Pendapatan/Kapita/Bulan", fmtRupiah(sub.pendapatan_per_kapita));
+  y = pdfLabel(doc, marginX, y, "Kategori pendapatan per kapita/bulan:");
+  const kifayahCls = classifyPerCapita(sub.pendapatan_per_kapita || 0);
+  const kifayahOpts = ["< Rp 351.957 (Extreme Poor)","< Rp 609.160 (Batas GK)","< Rp 979.989 (Batas HK)","≥ Rp 979.989 (di atas Had Kifayah)"];
+  const kifayahKeyMap = { "< Rp 351.957 (Extreme Poor)":"extreme", "< Rp 609.160 (Batas GK)":"gk", "< Rp 979.989 (Batas HK)":"hk" };
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, kifayahOpts, (label)=> kifayahKeyMap[label] ? kifayahCls.key===kifayahKeyMap[label] : !["extreme","gk","hk"].includes(kifayahCls.key)) + 3;
+  y = pdfLabel(doc, marginX, y, "4. Kondisi Kepala Keluarga:");
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"], (label)=> sub.kondisi_kepala === label) + 2;
+  y += 4;
+
+  // D. INDIKATOR EKONOMI LAINNYA
+  ensureSpace(55);
+  y = pdfSectionHeader(doc, marginX, y, contentW, "D", "INDIKATOR EKONOMI LAINNYA");
+  y = pdfLabel(doc, marginX, y, "5. Kepemilikan Rumah:");
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Mengontrak","Menumpang","Milik Sendiri"], (label)=> sub.kepemilikan_rumah === label) + 2;
+  y = pdfLabel(doc, marginX, y, "6. Kondisi Dinding Rumah:");
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Non Permanen","Semi Permanen","Permanen"], (label)=> sub.kondisi_dinding === label) + 3;
+  y = pdfFieldPair(doc, marginX, y, halfW, "1. Jumlah Hutang", fmtRupiah(sub.jumlah_hutang), "Sisa Hutang", fmtRupiah(sub.sisa_hutang));
+  y = pdfFieldPair(doc, marginX, y, halfW, "2. Jumlah Tabungan", fmtRupiah(sub.jumlah_tabungan), "3. Jumlah Aset Lancar", fmtRupiah(sub.jumlah_aset_lancar));
+  y = pdfFieldFull(doc, marginX, y, contentW, "Catatan Petugas", sub.catatan_petugas);
+  y += 3;
+
+  // E. KATEGORI ASNAF & REKOMENDASI
+  ensureSpace(55);
+  y = pdfSectionHeader(doc, marginX, y, contentW, "E", "KATEGORI ASNAF & REKOMENDASI (dihitung otomatis)");
+  y = pdfLabel(doc, marginX, y, "Kategori Asnaf:");
+  const asnaf = sub.kategori_asnaf || [];
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Fakir","Miskin","Gharim","Ibnu Sabil","Muallaf","Fisabilillah"], (label)=> asnaf.includes(label)) + 3;
+  y = pdfLabel(doc, marginX, y, "Kelayakan:");
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Layak Dibantu","Perlu Perhatian Khusus","Tidak Layak Dibantu"], (label)=> sub.kelayakan === label) + 3;
+  y = pdfFieldFull(doc, marginX, y, contentW, "Kota, Tanggal / Bulan / Tahun", sub.kota_tanggal);
+  y = pdfFieldFull(doc, marginX, y, contentW, "Status di Dashboard Admin", badgeLabelText(statusOf(sub)));
+  y += 6;
+
+  // Tanda tangan (2 kolom, seperti tabel terakhir form asli)
+  ensureSpace(52);
+  const colW = contentW/2;
+  const leftX = marginX, rightX = marginX + colW + 4;
+  doc.setDrawColor(200,200,200);
+  doc.line(marginX, y, marginX+contentW, y); y += 6;
+  doc.setFont("helvetica","bold"); doc.setFontSize(9);
+  doc.text("Petugas/Amil Pelaksana Assessment", leftX, y);
+  doc.text("Tanda Tangan Penerima Manfaat", rightX, y);
+  y += 4;
+  const sigY = y;
+  try{ if(sub.ttd_petugas) doc.addImage(sub.ttd_petugas, "PNG", leftX, sigY, 55, 24); } catch(e){}
+  try{ if(sub.ttd_pengaju) doc.addImage(sub.ttd_pengaju, "PNG", rightX, sigY, 55, 24); } catch(e){}
+  y = sigY + 26;
+  doc.setFont("helvetica","normal"); doc.setFontSize(8.3);
+  doc.setTextColor(60,60,60);
+  doc.text(`( ${sub.program_petugas || "-"} )`, leftX, y);
+  doc.text(`( ${sub.nama_pengaju || sub.nama || "-"} )`, rightX, y);
+  y += 4;
+  doc.text(sub.phone_petugas_ttd ? `(${sub.phone_petugas_ttd})` : "", leftX, y);
+  doc.text(sub.telp ? `(${sub.telp})` : "", rightX, y);
+
+  doc.save(`rapid-assessment-${(sub.nama_pengaju||sub.nama||"data").replace(/\s+/g,"_")}.pdf`);
 }
 
 /* ================================================================
