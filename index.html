@@ -556,6 +556,32 @@ function friendlyFirestoreError(err){
   }
   return raw;
 }
+/* Format ribuan "500000" -> "500.000". Dipakai live saat mengetik nominal. */
+function formatRibuanDigits(digits){
+  if(!digits) return "";
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+/* Input nominal dengan bantuan titik ribuan otomatis saat mengetik (mis. "500000" -> "500.000").
+   Nilai yang disimpan lewat onChange tetap digit murni, supaya perhitungan (parseFloat) tidak berubah. */
+function moneyInput(value, onChange){
+  const inp = el("input",{type:"text", inputmode:"numeric", value: formatRibuanDigits(String(value||"").replace(/\D/g,""))});
+  inp.addEventListener("input", ()=>{
+    const digits = inp.value.replace(/\D/g,"");
+    inp.value = formatRibuanDigits(digits);
+    onChange(digits);
+  });
+  return inp;
+}
+function isValidNik(nik){ return /^\d{16}$/.test(nik || ""); }
+function isValidPhone(phone){ return /^\+?[0-9]{9,15}$/.test(phone || ""); }
+/* Cegah calon peserta mengisi lebih dari 1x untuk program/sesi yang sama (berdasarkan NIK). */
+async function checkDuplicateNik(sessionId, nik){
+  if(FIREBASE_NOT_CONFIGURED || !sessionId || !nik) return false;
+  try{
+    const snap = await db.collection(COLLECTION).where("session_id","==",sessionId).where("nik","==",nik).limit(1).get();
+    return !snap.empty;
+  } catch(e){ console.warn("Gagal memeriksa duplikasi NIK:", e); return false; }
+}
 function toast(msg){
   const t = el("div",{class:"toast"}, msg);
   document.body.appendChild(t);
@@ -845,12 +871,14 @@ function renderSurveyPage(app){
 }
 
 function topbar(isAdmin){
-  // isAdmin: true = tampil "Keluar" (dashboard admin), false = tampil "Login Admin" (surveyor),
-  // "public" = tanpa navigasi sama sekali (link mandiri utk calon peserta — tidak perlu tahu ada admin/beranda)
+  // "Login Admin" HANYA muncul di tombol khusus pada halaman Beranda (renderLanding) —
+  // topbar sendiri tidak pernah menampilkannya lagi, supaya tidak tampil di
+  // halaman Full/Rapid Assessment (surveyor) maupun di halaman login admin itu sendiri.
+  // isAdmin: true = tampil "Keluar" (sudah login di dashboard admin), false = tampil "Beranda" saja,
+  // "public" = tanpa navigasi sama sekali (link mandiri utk calon peserta).
   const nav = isAdmin === "public" ? null : el("nav",{},
     el("a",{href:"#/"}, "Beranda"),
-    isAdmin===true ? el("button",{onclick:doLogout}, "Keluar") :
-    isAdmin===false ? el("a",{href:"#/admin"}, "Login Admin") : null
+    isAdmin===true ? el("button",{onclick:doLogout}, "Keluar") : null
   );
   return el("div",{class:"topbar"},
     el("div",{class:"brand"},
@@ -1049,7 +1077,7 @@ function renderDynTable(kind){
         el("td",{}, el("input",{type:"text", value:row.nama, oninput:(e)=>{row.nama=e.target.value;}})),
         el("td",{}, el("input",{type:"text", value:row.hubungan, oninput:(e)=>{row.hubungan=e.target.value;}})),
         el("td",{}, el("input",{type:"text", value:row.pekerjaan, oninput:(e)=>{row.pekerjaan=e.target.value;}})),
-        el("td",{}, el("input",{type:"number", value:row.jumlah, oninput:(e)=>{row.jumlah=e.target.value; refreshGauge();}})),
+        el("td",{}, moneyInput(row.jumlah, (digits)=>{ row.jumlah=digits; refreshGauge(); refreshDynTotal("penghasilan"); })),
         el("td",{}, dynTables.penghasilan.length>1 ? el("button",{class:"rm", onclick:()=>{
           dynTables.penghasilan = dynTables.penghasilan.filter(r=>r.id!==row.id);
           rerenderCurrentStep();
@@ -1066,14 +1094,14 @@ function renderDynTable(kind){
       tbody.appendChild(el("tr",{},
         el("td",{}, String(i+1)),
         el("td",{}, row.locked ? row.jenis : el("input",{type:"text", value:row.jenis, oninput:(e)=>{row.jenis=e.target.value;}})),
-        el("td",{}, el("input",{type:"number", value:row.jumlah, oninput:(e)=>{row.jumlah=e.target.value;}})),
+        el("td",{}, moneyInput(row.jumlah, (digits)=>{ row.jumlah=digits; refreshDynTotal("pengeluaran"); })),
         el("td",{}, !row.locked ? el("button",{class:"rm", onclick:()=>{
           dynTables.pengeluaran = dynTables.pengeluaran.filter(r=>r.id!==row.id);
           rerenderCurrentStep();
         }}, "✕") : null)
       ));
     });
-    tfoot = el("tfoot",{}, el("tr",{}, el("td",{colspan:2},"TOTAL"), el("td",{}, fmtRupiah(calcTableTotal("pengeluaran"))), el("td",{})));
+    tfoot = el("tfoot",{}, el("tr",{}, el("td",{colspan:2},"TOTAL"), el("td",{id:"total-pengeluaran"}, fmtRupiah(calcTableTotal("pengeluaran"))), el("td",{})));
   }
 
   if(kind === "hutang"){
@@ -1090,8 +1118,8 @@ function renderDynTable(kind){
         el("td",{}, el("input",{type:"text", value:row.keperluan, oninput:(e)=>{row.keperluan=e.target.value;}})),
         el("td",{}, el("input",{type:"date", value:row.jatuh_tempo, oninput:(e)=>{row.jatuh_tempo=e.target.value;}})),
         el("td",{}, el("input",{type:"text", value:row.status, oninput:(e)=>{row.status=e.target.value;}})),
-        el("td",{}, el("input",{type:"number", value:row.total, oninput:(e)=>{row.total=e.target.value; refreshGauge(); rerenderCurrentStep();}})),
-        el("td",{}, el("input",{type:"number", value:row.dibayar, oninput:(e)=>{row.dibayar=e.target.value; rerenderCurrentStep();}})),
+        el("td",{}, moneyInput(row.total, (digits)=>{ row.total=digits; refreshGauge(); rerenderCurrentStep(); })),
+        el("td",{}, moneyInput(row.dibayar, (digits)=>{ row.dibayar=digits; rerenderCurrentStep(); })),
         el("td",{class:"mono"}, fmtRupiah(sisa)),
         el("td",{}, el("button",{class:"rm", onclick:()=>{
           dynTables.hutang = dynTables.hutang.filter(r=>r.id!==row.id);
@@ -1118,6 +1146,15 @@ function renderDynTable(kind){
 function rerenderCurrentStep(){
   const body = $("#survey-body");
   if(body) renderWizard(body);
+}
+function refreshDynTotal(kind){
+  if(kind === "penghasilan"){
+    const cell = $("#total-penghasilan");
+    if(cell) cell.textContent = fmtRupiah(calcTableTotal("penghasilan"));
+  } else if(kind === "pengeluaran"){
+    const cell = $("#total-pengeluaran");
+    if(cell) cell.textContent = fmtRupiah(calcTableTotal("pengeluaran"));
+  }
 }
 function refreshGauge(){
   const g = $("#kifayah-figure");
@@ -1430,8 +1467,35 @@ function rapidRadioGroup(id, label, options, required, onSelect){
 function rapidTextField(id, label, opts={}){
   const wrap = el("div",{class:"field"});
   wrap.appendChild(el("label",{class:"q"}, label, opts.required?el("span",{class:"req"}," *"):null));
-  const inp = el("input",{type: opts.type||"text", id:"rf-"+id, value: rapidForm[id]||""});
-  inp.addEventListener("input", ()=>{ rapidForm[id] = inp.value; if(opts.onInput) opts.onInput(inp.value); });
+  const kind = opts.type; // "money" | "nik" | "phone" | tipe HTML native lain | undefined
+  const isMoney = kind === "money", isNik = kind === "nik", isPhone = kind === "phone";
+  const htmlType = (isMoney || isNik || isPhone) ? "text" : (kind || "text");
+  const inputMode = isMoney || isNik ? "numeric" : (isPhone ? "tel" : undefined);
+  let initialDisplay = rapidForm[id] || "";
+  if(isMoney) initialDisplay = formatRibuanDigits(String(rapidForm[id]||"").replace(/\D/g,""));
+  // Catatan: maxlength SENGAJA tidak dipasang untuk NIK — maxlength HTML membatasi jumlah
+  // karakter mentah (termasuk huruf jika ada yang ter-paste/salah ketik), bukan jumlah digit,
+  // sehingga bisa memotong digit sah sebelum sempat difilter. Pembatasan 16 digit dilakukan
+  // murni lewat JS di bawah (strip non-digit lalu slice 16) agar akurat.
+  const inp = el("input",{ type: htmlType, inputmode: inputMode, id:"rf-"+id, value: initialDisplay, maxlength: opts.maxlength });
+  inp.addEventListener("input", ()=>{
+    if(isMoney){
+      const digits = inp.value.replace(/\D/g,"");
+      rapidForm[id] = digits;
+      inp.value = formatRibuanDigits(digits);
+    } else if(isNik){
+      const digits = inp.value.replace(/\D/g,"").slice(0,16);
+      inp.value = digits;
+      rapidForm[id] = digits;
+    } else if(isPhone){
+      const cleaned = inp.value.replace(/[^\d+]/g,"");
+      inp.value = cleaned;
+      rapidForm[id] = cleaned;
+    } else {
+      rapidForm[id] = inp.value;
+    }
+    if(opts.onInput) opts.onInput(inp.value);
+  });
   wrap.appendChild(inp);
   if(opts.hint) wrap.appendChild(el("div",{class:"hint"}, opts.hint));
   return wrap;
@@ -1479,6 +1543,109 @@ function rapidPekerjaanField(onAfterSelect){
   );
 }
 
+/* ---------------- Alamat bertingkat: Provinsi > Kota/Kab > Kecamatan > Desa ----------------
+   Memakai API publik data wilayah Indonesia (emsifa/api-wilayah-indonesia, static JSON via
+   CDN) agar file tetap ringan — tidak perlu membundel puluhan ribu data desa ke index.html.
+   Butuh koneksi internet saat formulir dibuka (sama seperti kebutuhan Firebase). */
+const WILAYAH_API_BASE = "https://www.emsifa.com/api-wilayah-indonesia/api";
+async function fetchWilayah(path){
+  const res = await fetch(`${WILAYAH_API_BASE}/${path}`);
+  if(!res.ok) throw new Error("Gagal memuat data wilayah");
+  return res.json();
+}
+function wilayahSelect(id, placeholder){
+  const sel = el("select", { id:"rf-"+id, disabled: "disabled" });
+  sel.appendChild(el("option",{value:""}, placeholder));
+  return sel;
+}
+function resetWilayahSelect(sel, placeholder, disabled){
+  sel.innerHTML = "";
+  sel.appendChild(el("option",{value:""}, placeholder));
+  sel.disabled = !!disabled;
+}
+function rapidAddressCascade(){
+  const wrap = el("div",{class:"field"});
+  wrap.appendChild(el("label",{class:"q"}, "Alamat"));
+
+  const box = el("div",{});
+  box.appendChild(rapidTextareaField("alamat_lengkap","Alamat Lengkap Sesuai KTP"));
+  box.appendChild(el("div",{class:"row2"},
+    rapidTextField("rt","RT"),
+    rapidTextField("rw","RW"),
+  ));
+
+  const selProvinsi = wilayahSelect("provinsi_id", "Memuat provinsi…");
+  const selKota = wilayahSelect("kota_kab_id", "Pilih Provinsi dahulu");
+  const selKec = wilayahSelect("kecamatan_id", "Pilih Kota/Kab dahulu");
+  const selDesa = wilayahSelect("desa_kelurahan_id", "Pilih Kecamatan dahulu");
+  selProvinsi.disabled = true;
+
+  const wrapSel = (label, sel) => el("div",{class:"field"}, el("label",{class:"q", style:"font-size:12.5px;"}, label), sel);
+
+  box.appendChild(el("div",{class:"row2"}, wrapSel("Provinsi", selProvinsi), wrapSel("Kota / Kabupaten", selKota)));
+  box.appendChild(el("div",{class:"row2"}, wrapSel("Kecamatan", selKec), wrapSel("Desa / Kelurahan", selDesa)));
+  const errBox = el("div",{class:"hint"}, "");
+  box.appendChild(errBox);
+
+  fetchWilayah("provinces.json").then(list=>{
+    resetWilayahSelect(selProvinsi, "Pilih Provinsi...", false);
+    list.forEach(p=> selProvinsi.appendChild(el("option",{value:p.id}, p.name)));
+  }).catch(()=>{
+    resetWilayahSelect(selProvinsi, "Gagal memuat (cek koneksi internet)", true);
+    errBox.textContent = "Daftar provinsi gagal dimuat — periksa koneksi internet lalu muat ulang halaman.";
+  });
+
+  selProvinsi.addEventListener("change", async ()=>{
+    const opt = selProvinsi.selectedOptions[0];
+    rapidForm.provinsi = opt && opt.value ? opt.text : "";
+    resetWilayahSelect(selKota, "Memuat…", true);
+    resetWilayahSelect(selKec, "Pilih Kota/Kab dahulu", true);
+    resetWilayahSelect(selDesa, "Pilih Kecamatan dahulu", true);
+    rapidForm.kota_kab = ""; rapidForm.kecamatan = ""; rapidForm.desa_kelurahan = "";
+    if(!selProvinsi.value){ resetWilayahSelect(selKota, "Pilih Provinsi dahulu", true); return; }
+    try{
+      const list = await fetchWilayah(`regencies/${selProvinsi.value}.json`);
+      resetWilayahSelect(selKota, "Pilih Kota/Kabupaten...", false);
+      list.forEach(r=> selKota.appendChild(el("option",{value:r.id}, r.name)));
+    } catch(e){ resetWilayahSelect(selKota, "Gagal memuat", true); }
+  });
+
+  selKota.addEventListener("change", async ()=>{
+    const opt = selKota.selectedOptions[0];
+    rapidForm.kota_kab = opt && opt.value ? opt.text : "";
+    resetWilayahSelect(selKec, "Memuat…", true);
+    resetWilayahSelect(selDesa, "Pilih Kecamatan dahulu", true);
+    rapidForm.kecamatan = ""; rapidForm.desa_kelurahan = "";
+    if(!selKota.value){ resetWilayahSelect(selKec, "Pilih Kota/Kab dahulu", true); return; }
+    try{
+      const list = await fetchWilayah(`districts/${selKota.value}.json`);
+      resetWilayahSelect(selKec, "Pilih Kecamatan...", false);
+      list.forEach(d=> selKec.appendChild(el("option",{value:d.id}, d.name)));
+    } catch(e){ resetWilayahSelect(selKec, "Gagal memuat", true); }
+  });
+
+  selKec.addEventListener("change", async ()=>{
+    const opt = selKec.selectedOptions[0];
+    rapidForm.kecamatan = opt && opt.value ? opt.text : "";
+    resetWilayahSelect(selDesa, "Memuat…", true);
+    rapidForm.desa_kelurahan = "";
+    if(!selKec.value){ resetWilayahSelect(selDesa, "Pilih Kecamatan dahulu", true); return; }
+    try{
+      const list = await fetchWilayah(`villages/${selKec.value}.json`);
+      resetWilayahSelect(selDesa, "Pilih Desa/Kelurahan...", false);
+      list.forEach(v=> selDesa.appendChild(el("option",{value:v.id}, v.name)));
+    } catch(e){ resetWilayahSelect(selDesa, "Gagal memuat", true); }
+  });
+
+  selDesa.addEventListener("change", ()=>{
+    const opt = selDesa.selectedOptions[0];
+    rapidForm.desa_kelurahan = opt && opt.value ? opt.text : "";
+  });
+
+  wrap.appendChild(box);
+  return wrap;
+}
+
 /* ---------------- Kalkulator kelayakan (mini gauge) ---------------- */
 function getRapidPerCapita(){
   const total = parseFloat(rapidForm.total_penghasilan) || 0;
@@ -1516,6 +1683,16 @@ function renderRapidGauge(){
 }
 
 /* ---------------- Kategori Asnaf — dihitung otomatis ---------------- */
+/* Gabungan alamat bertingkat (Rapid Assessment) jadi satu baris teks, dipakai di PDF & ringkasan. */
+function fullAlamatRapid(sub){
+  const parts = [
+    sub.alamat_lengkap,
+    sub.rt ? `RT ${sub.rt}` : null,
+    sub.rw ? `RW ${sub.rw}` : null,
+    sub.desa_kelurahan, sub.kecamatan, sub.kota_kab, sub.provinsi
+  ].filter(Boolean);
+  return parts.join(", ");
+}
 function computeAsnaf(data){
   const cats = [];
   if(data.pekerjaan_kepala === "Menganggur") cats.push("Fakir");
@@ -1604,8 +1781,11 @@ function renderDirectForm(shell){
   const panel = el("div",{class:"step-panel"});
 
   panel.appendChild(sectionHeading("B", "Identitas Calon Penerima Manfaat"));
-  panel.appendChild(el("div",{class:"row2"}, rapidTextField("nama","Nama", {required:true}), rapidTextField("nik","NIK", {required:true})));
-  panel.appendChild(rapidTextField("alamat","Alamat"));
+  panel.appendChild(el("div",{class:"row2"},
+    rapidTextField("nama","Nama", {required:true}),
+    rapidTextField("nik","NIK", {required:true, type:"nik", hint:"16 digit sesuai KTP"}),
+  ));
+  panel.appendChild(rapidAddressCascade());
   panel.appendChild(el("div",{class:"row3"},
     rapidRadioGroup("jenis_kelamin","Jenis Kelamin",["Laki-Laki","Perempuan"]),
     rapidTextField("usia","Usia (Tahun)", {type:"number"}),
@@ -1613,13 +1793,13 @@ function renderDirectForm(shell){
   ));
   panel.appendChild(el("div",{class:"row2"},
     rapidRadioGroup("status_nikah","Status Pernikahan",["Lajang","Menikah","Janda","Duda"]),
-    rapidTextField("telp","Nomor Telepon", {type:"tel"}),
+    rapidTextField("telp","Nomor Telepon", {type:"phone", hint:"Contoh: 081234567890"}),
   ));
   panel.appendChild(rapidMuallafField());
 
   panel.appendChild(sectionHeading("C", "Indikator Ekonomi (Kelayakan Cepat)"));
   panel.appendChild(rapidPekerjaanField(refreshAsnafBadges));
-  panel.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"number", onInput: ()=>{ refreshRapidGauge(); refreshAsnafBadges(); }}));
+  panel.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"money", onInput: ()=>{ refreshRapidGauge(); refreshAsnafBadges(); }}));
   panel.appendChild(renderRapidGauge());
   panel.appendChild(rapidRadioGroup("kondisi_kepala","Kondisi Kepala Keluarga",["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"]));
 
@@ -1629,12 +1809,12 @@ function renderDirectForm(shell){
     rapidRadioGroup("kondisi_dinding","Kondisi Dinding Rumah",["Non Permanen","Semi Permanen","Permanen"]),
   ));
   panel.appendChild(el("div",{class:"row2"},
-    rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"number", onInput: refreshAsnafBadges}),
-    rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"number"}),
+    rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"money", onInput: refreshAsnafBadges}),
+    rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"money"}),
   ));
   panel.appendChild(el("div",{class:"row2"},
-    rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"number"}),
-    rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"number"}),
+    rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"money"}),
+    rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"money"}),
   ));
 
   panel.appendChild(sectionHeading("E", "Kategori Asnaf & Rekomendasi", "Kategori asnaf dihitung otomatis dari jawaban di atas."));
@@ -1665,8 +1845,14 @@ function renderDirectForm(shell){
 
 async function submitDirect(shell){
   if(!rapidForm.nama || !rapidForm.nik){ toast("Nama dan NIK calon penerima manfaat wajib diisi."); return; }
+  if(!isValidNik(rapidForm.nik)){ toast("NIK harus tepat 16 digit angka."); return; }
+  if(rapidForm.telp && !isValidPhone(rapidForm.telp)){ toast("Nomor telepon tidak valid — gunakan angka saja (9-15 digit)."); return; }
   if(!rapidForm.kelayakan){ toast("Mohon pilih Kelayakan."); return; }
   if(sigPengaju.isEmpty()){ toast("Mohon minta tanda tangan penerima manfaat."); return; }
+
+  await ensureAnonAuth();
+  const isDup = await checkDuplicateNik(rapidSession.id, rapidForm.nik);
+  if(isDup && !confirm("NIK ini sudah pernah diisi pada sesi/program ini sebelumnya. Tetap simpan sebagai entri baru?")) return;
 
   const btn = $("#rapid-submit-btn");
   btn.disabled = true;
@@ -1838,7 +2024,11 @@ function openReviewPanel(sub){
   drawer.appendChild(body);
 
   body.appendChild(dsection("Identitas", [
-    ["NIK", sub.nik], ["Alamat", sub.alamat], ["Jenis Kelamin", sub.jenis_kelamin],
+    ["NIK", sub.nik], ["Alamat Lengkap", sub.alamat_lengkap || sub.alamat],
+    ["RT/RW", [sub.rt&&`RT ${sub.rt}`, sub.rw&&`RW ${sub.rw}`].filter(Boolean).join(" / ")],
+    ["Provinsi", sub.provinsi], ["Kota/Kab.", sub.kota_kab],
+    ["Kecamatan", sub.kecamatan], ["Desa/Kelurahan", sub.desa_kelurahan],
+    ["Jenis Kelamin", sub.jenis_kelamin],
     ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["No. Telepon", sub.telp],
     ["Muallaf", sub.is_muallaf ? `Ya, sejak ${sub.muallaf_tahun||"-"}` : "Tidak"],
   ]));
@@ -1960,8 +2150,11 @@ function renderSelfFillForm(shell, sessionId, session){
 
   const panel = el("div",{class:"step-panel"});
   panel.appendChild(sectionHeading("B", "Identitas Anda"));
-  panel.appendChild(el("div",{class:"row2"}, rapidTextField("nama","Nama Lengkap", {required:true}), rapidTextField("nik","NIK", {required:true})));
-  panel.appendChild(rapidTextField("alamat","Alamat"));
+  panel.appendChild(el("div",{class:"row2"},
+    rapidTextField("nama","Nama Lengkap", {required:true}),
+    rapidTextField("nik","NIK", {required:true, type:"nik", hint:"16 digit sesuai KTP"}),
+  ));
+  panel.appendChild(rapidAddressCascade());
   panel.appendChild(el("div",{class:"row3"},
     rapidRadioGroup("jenis_kelamin","Jenis Kelamin",["Laki-Laki","Perempuan"]),
     rapidTextField("usia","Usia (Tahun)", {type:"number"}),
@@ -1969,13 +2162,13 @@ function renderSelfFillForm(shell, sessionId, session){
   ));
   panel.appendChild(el("div",{class:"row2"},
     rapidRadioGroup("status_nikah","Status Pernikahan",["Lajang","Menikah","Janda","Duda"]),
-    rapidTextField("telp","Nomor Telepon (WhatsApp aktif)", {type:"tel", required:true}),
+    rapidTextField("telp","Nomor Telepon (WhatsApp aktif)", {type:"phone", required:true, hint:"Contoh: 081234567890"}),
   ));
   panel.appendChild(rapidMuallafField());
 
   panel.appendChild(sectionHeading("C", "Indikator Ekonomi"));
   panel.appendChild(rapidPekerjaanField());
-  panel.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"number"}));
+  panel.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"money"}));
   panel.appendChild(rapidRadioGroup("kondisi_kepala","Kondisi Kepala Keluarga",["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"]));
 
   panel.appendChild(sectionHeading("D", "Indikator Ekonomi Lainnya"));
@@ -1983,8 +2176,8 @@ function renderSelfFillForm(shell, sessionId, session){
     rapidRadioGroup("kepemilikan_rumah","Kepemilikan Rumah",["Mengontrak","Menumpang","Milik Sendiri"]),
     rapidRadioGroup("kondisi_dinding","Kondisi Dinding Rumah",["Non Permanen","Semi Permanen","Permanen"]),
   ));
-  panel.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"number"}), rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"number"})));
-  panel.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"number"}), rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"number"})));
+  panel.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"money"}), rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"money"})));
+  panel.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"money"}), rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"money"})));
 
   panel.appendChild(sectionHeading(null, "Tanda Tangan Anda"));
   const sigBox = el("div",{class:"sig-box"});
@@ -2000,12 +2193,23 @@ function renderSelfFillForm(shell, sessionId, session){
 
 async function submitSelfFill(shell, sessionId, session){
   if(!selfFillForm.nama || !selfFillForm.nik){ toast("Nama dan NIK wajib diisi."); return; }
+  if(!isValidNik(selfFillForm.nik)){ toast("NIK harus tepat 16 digit angka."); return; }
   if(!selfFillForm.telp){ toast("Nomor telepon wajib diisi."); return; }
+  if(!isValidPhone(selfFillForm.telp)){ toast("Nomor telepon tidak valid — gunakan angka saja (9-15 digit)."); return; }
   if(sigSelf.isEmpty()){ toast("Mohon bubuhkan tanda tangan Anda."); return; }
 
   const btn = $("#selffill-submit-btn");
   btn.disabled = true;
   btn.innerHTML = ""; btn.appendChild(el("span",{class:"spinner"})); btn.appendChild(document.createTextNode(" Mengirim..."));
+
+  await ensureAnonAuth();
+  const isDup = await checkDuplicateNik(sessionId, selfFillForm.nik);
+  if(isDup){
+    toast("NIK ini sudah pernah mengisi formulir untuk program ini. Jika ini keliru, hubungi petugas program.");
+    btn.disabled = false;
+    btn.textContent = "Kirim Data →";
+    return;
+  }
 
   const total = parseFloat(selfFillForm.total_penghasilan) || 0;
   const tanggungan = parseFloat(selfFillForm.jumlah_tanggungan) || 1;
@@ -2314,8 +2518,14 @@ function renderRapidDetail(bodyEl, sub){
     ["Lokasi Penyaluran", sub.program_lokasi], ["Petugas / Amil", sub.program_petugas],
   ]));
   bodyEl.appendChild(dsection("Identitas Calon Penerima Manfaat", [
-    ["NIK", sub.nik], ["Alamat", sub.alamat], ["Jenis Kelamin", sub.jenis_kelamin],
+    ["NIK", sub.nik], ["Alamat Lengkap", sub.alamat_lengkap || sub.alamat],
+    ["RT/RW", [sub.rt&&`RT ${sub.rt}`, sub.rw&&`RW ${sub.rw}`].filter(Boolean).join(" / ")],
+    ["Provinsi", sub.provinsi], ["Kota/Kab.", sub.kota_kab],
+    ["Kecamatan", sub.kecamatan], ["Desa/Kelurahan", sub.desa_kelurahan],
+    ["Jenis Kelamin", sub.jenis_kelamin], ["Telepon", sub.telp],
     ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Jml. Tanggungan", sub.jumlah_tanggungan],
+    ["Muallaf", sub.is_muallaf ? `Ya, sejak ${sub.muallaf_tahun||"-"}` : "Tidak"],
+    ["Diisi Oleh", sub.diisi_oleh === "peserta_sendiri" ? "Peserta Sendiri (link)" : "Surveyor"],
   ]));
   bodyEl.appendChild(dsection("Indikator Ekonomi", [
     ["Pekerjaan Kepala Keluarga", sub.pekerjaan_kepala === "Lainnya" ? sub.pekerjaan_kepala_lainnya : sub.pekerjaan_kepala],
@@ -2550,7 +2760,7 @@ function generateRapidAssessmentPDF(sub){
   y = pdfSectionHeader(doc, marginX, y, contentW, "B", "IDENTITAS CALON PENERIMA MANFAAT");
   y = pdfFieldFull(doc, marginX, y, contentW, "Nama", sub.nama_pengaju || sub.nama);
   y = pdfFieldFull(doc, marginX, y, contentW, "NIK", sub.nik);
-  y = pdfFieldFull(doc, marginX, y, contentW, "Alamat", sub.alamat);
+  y = pdfFieldFull(doc, marginX, y, contentW, "Alamat", fullAlamatRapid(sub) || sub.alamat);
   y = pdfFieldPair(doc, marginX, y, halfW, "Jenis Kelamin", sub.jenis_kelamin, "Usia", sub.usia ? sub.usia+" th" : "-");
   y = pdfFieldPair(doc, marginX, y, halfW, "Status Pernikahan", sub.status_nikah, "Jml. Tanggungan Keluarga", sub.jumlah_tanggungan ? sub.jumlah_tanggungan+" orang" : "-");
   y = pdfFieldPair(doc, marginX, y, halfW, "Muallaf", sub.is_muallaf ? `Ya, sejak ${sub.muallaf_tahun||"-"}` : "Tidak", "No. Telepon", sub.telp);
