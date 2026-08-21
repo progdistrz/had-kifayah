@@ -14,6 +14,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-analytics-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <style>
 /* ============================================================
@@ -460,6 +461,10 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
 }
 .bulk-bar .btn-accent{ margin-left:auto; }
 .data-table-wrap input[type=checkbox], .review-item input[type=checkbox]{ width:16px; height:16px; accent-color: var(--primary); cursor:pointer; }
+
+/* Gerbang NIK — status ketersediaan sebelum field lain aktif */
+.nik-gate-ok{ color: var(--success); font-weight:700; }
+.nik-gate-blocked{ color: var(--danger); font-weight:700; }
 </style>
 </head>
 <body>
@@ -1919,54 +1924,95 @@ function sectionHeading(letter, title, sub){
 }
 
 /* ---------------- Tahap 3a: form diisi langsung oleh surveyor ---------------- */
+/* ---------------- Gerbang NIK: field pertama yang wajib diverifikasi sebelum field lain aktif ---------------- */
+function renderNikGateField(sessionIdGetter, restContainer){
+  const wrap = el("div",{class:"field"});
+  wrap.appendChild(el("label",{class:"q"}, "NIK", el("span",{class:"req"}," *")));
+  const inp = el("input",{type:"text", inputmode:"numeric", id:"rf-nik", value: rapidForm.nik||""});
+  wrap.appendChild(inp);
+  const statusBox = el("div",{class:"hint", id:"nik-gate-status"}, "Masukkan 16 digit NIK terlebih dahulu untuk melanjutkan.");
+  wrap.appendChild(statusBox);
+
+  restContainer.classList.add("hidden");
+
+  let checkToken = 0;
+  inp.addEventListener("input", async ()=>{
+    const digits = inp.value.replace(/\D/g,"").slice(0,16);
+    inp.value = digits;
+    rapidForm.nik = digits;
+    checkToken++;
+    const myToken = checkToken;
+    restContainer.classList.add("hidden");
+    if(digits.length !== 16){
+      statusBox.textContent = "Masukkan 16 digit NIK terlebih dahulu untuk melanjutkan.";
+      statusBox.className = "hint";
+      return;
+    }
+    statusBox.textContent = "⏳ Memeriksa NIK...";
+    statusBox.className = "hint";
+    const dup = await checkDuplicateNik(sessionIdGetter(), digits);
+    if(myToken !== checkToken) return; // NIK sudah berubah lagi sebelum hasil ini kembali — abaikan hasil basi
+    if(dup){
+      statusBox.textContent = "✕ NIK ini sudah pernah terdaftar/submit untuk program ini. Isian lain tidak dapat diisi.";
+      statusBox.className = "hint nik-gate-blocked";
+      restContainer.classList.add("hidden");
+    } else {
+      statusBox.textContent = "✓ NIK belum terdaftar — silakan lanjutkan mengisi data di bawah.";
+      statusBox.className = "hint nik-gate-ok";
+      restContainer.classList.remove("hidden");
+    }
+  });
+  return wrap;
+}
+
 function renderDirectForm(shell){
   rapidForm = {};
   const panel = el("div",{class:"step-panel"});
 
   panel.appendChild(sectionHeading("B", "Identitas Calon Penerima Manfaat"));
-  panel.appendChild(el("div",{class:"row2"},
-    rapidTextField("nama","Nama", {required:true}),
-    rapidTextField("nik","NIK", {required:true, type:"nik", hint:"16 digit sesuai KTP"}),
-  ));
-  panel.appendChild(rapidAddressCascade());
-  panel.appendChild(el("div",{class:"row3"},
+  const rest = el("div",{});
+  panel.appendChild(renderNikGateField(()=>rapidSession.id, rest));
+
+  rest.appendChild(rapidTextField("nama","Nama", {required:true}));
+  rest.appendChild(rapidAddressCascade());
+  rest.appendChild(el("div",{class:"row3"},
     rapidRadioGroup("jenis_kelamin","Jenis Kelamin",["Laki-Laki","Perempuan"]),
     rapidTextField("usia","Usia (Tahun)", {type:"number"}),
     rapidTextField("jumlah_tanggungan","Jml. Tanggungan Keluarga", {type:"number", onInput: ()=>{ refreshRapidGauge(); refreshAsnafBadges(); }}),
   ));
-  panel.appendChild(el("div",{class:"row2"},
+  rest.appendChild(el("div",{class:"row2"},
     rapidRadioGroup("status_nikah","Status Pernikahan",["Lajang","Menikah","Janda","Duda"]),
     rapidTextField("telp","Nomor Telepon", {type:"phone", hint:"Contoh: 081234567890"}),
   ));
-  panel.appendChild(rapidMuallafField());
+  rest.appendChild(rapidMuallafField());
 
-  panel.appendChild(sectionHeading("C", "Indikator Ekonomi (Kelayakan Cepat)"));
-  panel.appendChild(rapidPekerjaanField(refreshAsnafBadges));
-  panel.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"money", onInput: ()=>{ refreshRapidGauge(); refreshAsnafBadges(); }}));
-  panel.appendChild(renderRapidGauge());
-  panel.appendChild(rapidRadioGroup("kondisi_kepala","Kondisi Kepala Keluarga",["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"]));
+  rest.appendChild(sectionHeading("C", "Indikator Ekonomi (Kelayakan Cepat)"));
+  rest.appendChild(rapidPekerjaanField(refreshAsnafBadges));
+  rest.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"money", onInput: ()=>{ refreshRapidGauge(); refreshAsnafBadges(); }}));
+  rest.appendChild(renderRapidGauge());
+  rest.appendChild(rapidRadioGroup("kondisi_kepala","Kondisi Kepala Keluarga",["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"]));
 
-  panel.appendChild(sectionHeading("D", "Indikator Ekonomi Lainnya", "Data pendukung untuk memperkuat penilaian kelayakan ekonomi calon penerima."));
-  panel.appendChild(el("div",{class:"row2"},
+  rest.appendChild(sectionHeading("D", "Indikator Ekonomi Lainnya", "Data pendukung untuk memperkuat penilaian kelayakan ekonomi calon penerima."));
+  rest.appendChild(el("div",{class:"row2"},
     rapidRadioGroup("kepemilikan_rumah","Kepemilikan Rumah",["Mengontrak","Menumpang","Milik Sendiri"]),
     rapidRadioGroup("kondisi_dinding","Kondisi Dinding Rumah",["Non Permanen","Semi Permanen","Permanen"]),
   ));
-  panel.appendChild(el("div",{class:"row2"},
+  rest.appendChild(el("div",{class:"row2"},
     rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"money", onInput: refreshAsnafBadges}),
     rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"money"}),
   ));
-  panel.appendChild(el("div",{class:"row2"},
+  rest.appendChild(el("div",{class:"row2"},
     rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"money"}),
     rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"money"}),
   ));
 
-  panel.appendChild(sectionHeading("E", "Kategori Asnaf & Rekomendasi", "Kategori asnaf dihitung otomatis dari jawaban di atas."));
-  panel.appendChild(renderAsnafBadgesBlock());
-  panel.appendChild(rapidRadioGroup("kelayakan","Kelayakan",["Layak Dibantu","Perlu Perhatian Khusus","Tidak Layak Dibantu"], true));
-  panel.appendChild(rapidTextareaField("catatan_petugas","Catatan Petugas"));
-  panel.appendChild(rapidTextField("kota_tanggal","Kota, Tanggal / Bulan / Tahun", {}));
+  rest.appendChild(sectionHeading("E", "Kategori Asnaf & Rekomendasi", "Kategori asnaf dihitung otomatis dari jawaban di atas."));
+  rest.appendChild(renderAsnafBadgesBlock());
+  rest.appendChild(rapidRadioGroup("kelayakan","Kelayakan",["Layak Dibantu","Perlu Perhatian Khusus","Tidak Layak Dibantu"], true));
+  rest.appendChild(rapidTextareaField("catatan_petugas","Catatan Petugas"));
+  rest.appendChild(rapidTextField("kota_tanggal","Kota, Tanggal / Bulan / Tahun", {}));
 
-  panel.appendChild(sectionHeading(null, "Tanda Tangan"));
+  rest.appendChild(sectionHeading(null, "Tanda Tangan"));
   const sigGrid = el("div",{class:"row2"});
   sigGrid.appendChild(el("div",{class:"sig-box"},
     el("div",{class:"q"}, "Petugas / Amil"),
@@ -1977,11 +2023,12 @@ function renderDirectForm(shell){
   sigPengaju = createSignaturePad();
   pengajuBox.appendChild(sigPengaju.el);
   sigGrid.appendChild(pengajuBox);
-  panel.appendChild(sigGrid);
+  rest.appendChild(sigGrid);
 
-  panel.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
+  rest.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
     el("button",{class:"btn btn-primary", id:"rapid-submit-btn", onclick:()=>submitDirect(shell)}, "Kirim ke Admin →")
   ));
+  panel.appendChild(rest);
   return panel;
 }
 
@@ -1993,8 +2040,11 @@ async function submitDirect(shell){
   if(sigPengaju.isEmpty()){ toast("Mohon minta tanda tangan penerima manfaat."); return; }
 
   await ensureAnonAuth();
+  // Pemeriksaan akhir (jaga-jaga ada perubahan sejak gerbang NIK di atas dicek) — kini diblokir
+  // TEGAS, tidak lagi bisa dilewati dengan konfirmasi, karena surveyor sudah diberi tahu status
+  // NIK sejak awal sebelum mengisi field lain.
   const isDup = await checkDuplicateNik(rapidSession.id, rapidForm.nik);
-  if(isDup && !confirm("NIK ini sudah pernah diisi pada sesi/program ini sebelumnya. Tetap simpan sebagai entri baru?")) return;
+  if(isDup){ toast("NIK ini sudah terdaftar untuk program ini. Tidak dapat mengirim data duplikat."); return; }
 
   const btn = $("#rapid-submit-btn");
   btn.disabled = true;
@@ -2291,44 +2341,45 @@ function renderSelfFillForm(shell, sessionId, session){
 
   const panel = el("div",{class:"step-panel"});
   panel.appendChild(sectionHeading("B", "Identitas Anda"));
-  panel.appendChild(el("div",{class:"row2"},
-    rapidTextField("nama","Nama Lengkap", {required:true}),
-    rapidTextField("nik","NIK", {required:true, type:"nik", hint:"16 digit sesuai KTP"}),
-  ));
-  panel.appendChild(rapidAddressCascade());
-  panel.appendChild(el("div",{class:"row3"},
+  const rest = el("div",{});
+  panel.appendChild(renderNikGateField(()=>sessionId, rest));
+
+  rest.appendChild(rapidTextField("nama","Nama Lengkap", {required:true}));
+  rest.appendChild(rapidAddressCascade());
+  rest.appendChild(el("div",{class:"row3"},
     rapidRadioGroup("jenis_kelamin","Jenis Kelamin",["Laki-Laki","Perempuan"]),
     rapidTextField("usia","Usia (Tahun)", {type:"number"}),
     rapidTextField("jumlah_tanggungan","Jml. Tanggungan Keluarga", {type:"number"}),
   ));
-  panel.appendChild(el("div",{class:"row2"},
+  rest.appendChild(el("div",{class:"row2"},
     rapidRadioGroup("status_nikah","Status Pernikahan",["Lajang","Menikah","Janda","Duda"]),
     rapidTextField("telp","Nomor Telepon (WhatsApp aktif)", {type:"phone", required:true, hint:"Contoh: 081234567890"}),
   ));
-  panel.appendChild(rapidMuallafField());
+  rest.appendChild(rapidMuallafField());
 
-  panel.appendChild(sectionHeading("C", "Indikator Ekonomi"));
-  panel.appendChild(rapidPekerjaanField());
-  panel.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"money"}));
-  panel.appendChild(rapidRadioGroup("kondisi_kepala","Kondisi Kepala Keluarga",["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"]));
+  rest.appendChild(sectionHeading("C", "Indikator Ekonomi"));
+  rest.appendChild(rapidPekerjaanField());
+  rest.appendChild(rapidTextField("total_penghasilan","Total Penghasilan Keluarga / Bulan (Rp)", {type:"money"}));
+  rest.appendChild(rapidRadioGroup("kondisi_kepala","Kondisi Kepala Keluarga",["Sakit menahun","Manula","Sehat & bekerja","Sehat & tidak bekerja"]));
 
-  panel.appendChild(sectionHeading("D", "Indikator Ekonomi Lainnya"));
-  panel.appendChild(el("div",{class:"row2"},
+  rest.appendChild(sectionHeading("D", "Indikator Ekonomi Lainnya"));
+  rest.appendChild(el("div",{class:"row2"},
     rapidRadioGroup("kepemilikan_rumah","Kepemilikan Rumah",["Mengontrak","Menumpang","Milik Sendiri"]),
     rapidRadioGroup("kondisi_dinding","Kondisi Dinding Rumah",["Non Permanen","Semi Permanen","Permanen"]),
   ));
-  panel.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"money"}), rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"money"})));
-  panel.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"money"}), rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"money"})));
+  rest.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_hutang","Jumlah Hutang (Rp)", {type:"money"}), rapidTextField("sisa_hutang","Sisa Hutang (Rp)", {type:"money"})));
+  rest.appendChild(el("div",{class:"row2"}, rapidTextField("jumlah_tabungan","Jumlah Tabungan (Rp)", {type:"money"}), rapidTextField("jumlah_aset_lancar","Jumlah Aset Lancar (Rp)", {type:"money"})));
 
-  panel.appendChild(sectionHeading(null, "Tanda Tangan Anda"));
+  rest.appendChild(sectionHeading(null, "Tanda Tangan Anda"));
   const sigBox = el("div",{class:"sig-box"});
   sigSelf = createSignaturePad();
   sigBox.appendChild(sigSelf.el);
-  panel.appendChild(sigBox);
+  rest.appendChild(sigBox);
 
-  panel.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
+  rest.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
     el("button",{class:"btn btn-primary", id:"selffill-submit-btn", onclick:()=>submitSelfFill(shell, sessionId, session)}, "Kirim Data →")
   ));
+  panel.appendChild(rest);
   shell.appendChild(panel);
 }
 
@@ -2417,11 +2468,17 @@ function renderAdminPage(app){
   }
 
   auth.onAuthStateChanged(user=>{
+    // PENTING: user bisa saja login ANONIM (dibuat otomatis oleh ensureAnonAuth() di halaman
+    // Full/Rapid Assessment & link mandiri). Anonymous auth BUKAN admin — hanya email/password
+    // asli yang boleh masuk ke dashboard. Tanpa cek isAnonymous ini, siapa pun yang baru saja
+    // membuka form survei (yang otomatis membuat sesi anonim) lalu membuka #/admin akan
+    // langsung dianggap sebagai admin tanpa pernah memasukkan email/kata sandi.
+    const isRealAdmin = !!user && user.isAnonymous !== true;
     wrap.innerHTML = "";
-    wrap.appendChild(topbar(!!user));
+    wrap.appendChild(topbar(isRealAdmin));
     const shell = el("div",{class:"shell"});
     wrap.appendChild(shell);
-    if(user) renderDashboard(shell, user);
+    if(isRealAdmin) renderDashboard(shell, user);
     else renderLoginForm(shell);
   });
 }
@@ -2491,6 +2548,7 @@ function renderDashboard(shell, user){
     ),
     el("select",{id:"filter-bulan", onchange: renderTable}, el("option",{value:""},"Semua Bulan")),
     el("select",{id:"filter-kategori", onchange: renderTable}, el("option",{value:""},"Semua Kategori Program")),
+    el("button",{class:"btn btn-ghost btn-sm", type:"button", onclick: resetFilters}, "↺ Reset Filter"),
   );
   shell.appendChild(toolbar);
   shell.appendChild(renderLocationFilterRow());
@@ -2624,6 +2682,20 @@ function matchesLoc(s, level, name){
     desa: [s.desa_kelurahan, s.alamat_kel],
   };
   return (fieldsMap[level]||[]).some(v=> v && v.toLowerCase().includes(nameLC));
+}
+function resetFilters(){
+  const searchEl = $("#search-input");
+  if(searchEl) searchEl.value = "";
+  ["filter-jenis","filter-status","filter-bulan","filter-kategori","filter-loc-prov"].forEach(id=>{
+    const elx = $("#"+id);
+    if(elx) elx.value = "";
+  });
+  // Kota/Kec/Desa isinya mengikuti provinsi yang dipilih sebelumnya — kembalikan ke placeholder kosong.
+  const kota = $("#filter-loc-kota"), kec = $("#filter-loc-kec"), desa = $("#filter-loc-desa");
+  if(kota) resetWilayahSelect(kota, "Semua Kota/Kab.", false);
+  if(kec) resetWilayahSelect(kec, "Semua Kecamatan", false);
+  if(desa) resetWilayahSelect(desa, "Semua Desa/Kelurahan", false);
+  renderTable();
 }
 
 async function toggleSettingsPanel(){
@@ -2808,7 +2880,8 @@ function renderBulkActionBar(){
   const selectedSubs = ALL_SUBMISSIONS.filter(s=>SELECTED_IDS.has(s.id));
   box.appendChild(el("div",{class:"bulk-bar"},
     el("span",{}, `${selectedSubs.length} data dipilih`),
-    el("button",{class:"btn btn-accent btn-sm", onclick:()=>generateBulkPDF(selectedSubs)}, "🖨️ Generate PDF Massal"),
+    el("button",{class:"btn btn-accent btn-sm", onclick:()=>generateBulkPDFZip(selectedSubs)}, "🖨️ Generate PDF Massal (.zip)"),
+    el("button",{class:"btn btn-danger btn-sm", onclick:()=>deleteBulk(selectedSubs)}, "🗑️ Hapus Massal"),
     el("button",{class:"btn btn-ghost btn-sm", onclick:()=>{ SELECTED_IDS.clear(); renderTable(); }}, "Batal Pilih"),
   ));
 }
@@ -2935,6 +3008,7 @@ function openDetail(sub){
       el("button",{class:"btn btn-accent", onclick:()=>updateStatus(sub,"attention")}, "Perlu Perhatian Khusus"),
       el("button",{class:"btn btn-danger", onclick:()=>updateStatus(sub,"rejected")}, "Tandai Tidak Layak"),
       el("button",{class:"btn btn-ghost", onclick:()=>generateAssessmentPDF(sub)}, "🖨️ Cetak PDF"),
+      el("button",{class:"btn btn-danger", onclick:()=>deleteSubmission(sub)}, "🗑️ Hapus Data"),
     )
   );
   bodyEl.appendChild(actionSection);
@@ -2962,6 +3036,31 @@ async function updateStatus(sub, status){
     toast("Gagal memperbarui status: " + friendlyFirestoreError(err));
   }
 }
+async function deleteSubmission(sub){
+  const nama = sub.nama_pengaju || sub.nama || "data ini";
+  if(!confirm(`Hapus "${nama}" secara PERMANEN dari database? Tindakan ini tidak bisa dibatalkan.`)) return;
+  try{
+    await db.collection(COLLECTION).doc(sub.id).delete();
+    toast("Data berhasil dihapus.");
+    closeDetail();
+  } catch(err){
+    toast("Gagal menghapus data: " + friendlyFirestoreError(err));
+  }
+}
+async function deleteBulk(subs){
+  if(!subs.length) return;
+  if(!confirm(`Hapus ${subs.length} data terpilih secara PERMANEN dari database? Tindakan ini tidak bisa dibatalkan.`)) return;
+  try{
+    const batch = db.batch();
+    subs.forEach(s=> batch.delete(db.collection(COLLECTION).doc(s.id)));
+    await batch.commit();
+    SELECTED_IDS.clear();
+    toast(`${subs.length} data berhasil dihapus.`);
+    renderTable();
+  } catch(err){
+    toast("Gagal menghapus data secara massal: " + friendlyFirestoreError(err));
+  }
+}
 
 /* ---------------- Cetak PDF (jsPDF, murni di browser) ---------------- */
 function badgeLabelText(status){
@@ -2977,18 +3076,43 @@ function generateAssessmentPDF(sub){
   const kind = sub.jenis_form === "rapid_assessment" ? "rapid-assessment" : "full-assessment";
   doc.save(`${kind}-${(sub.nama_pengaju||sub.nama||"data").replace(/\s+/g,"_")}.pdf`);
 }
-/* Cetak PDF gabungan (banyak entri jadi 1 file, tiap entri di halaman baru) — dipakai aksi massal Admin. */
-function generateBulkPDF(subs){
+/* Aksi massal Admin: SETIAP entri jadi file PDF-nya sendiri (bukan digabung jadi satu PDF
+   panjang), lalu dibundel jadi satu file .zip untuk diunduh sekali klik. Catatan: format .rar
+   tidak memungkinkan dibuat murni di browser (format tertutup/berbayar, tidak ada encoder
+   JS gratis) — .zip adalah standar terbuka yang mencapai tujuan sama persis: tiap assessment
+   tetap 1 file PDF terpisah di dalam satu bundel. */
+async function generateBulkPDFZip(subs){
   if(typeof window.jspdf === "undefined"){ toast("Modul PDF gagal dimuat (periksa koneksi internet)."); return; }
+  if(typeof window.JSZip === "undefined"){ toast("Modul ZIP gagal dimuat (periksa koneksi internet)."); return; }
   if(!subs.length) return;
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  subs.forEach((sub,i)=>{
-    if(i>0) doc.addPage();
+  const zip = new JSZip();
+  const usedNames = {};
+  subs.forEach(sub=>{
+    const doc = new jsPDF();
     if(sub.jenis_form === "rapid_assessment") drawRapidAssessmentPDF(doc, sub);
     else drawFullAssessmentPDF(doc, sub);
+    const kind = sub.jenis_form === "rapid_assessment" ? "rapid-assessment" : "full-assessment";
+    let baseName = `${kind}-${(sub.nama_pengaju||sub.nama||"data").replace(/\s+/g,"_")}`;
+    let fileName = `${baseName}.pdf`;
+    let n = 2;
+    while(usedNames[fileName]){ fileName = `${baseName}-${n}.pdf`; n++; } // hindari nama file dobel (nama sama)
+    usedNames[fileName] = true;
+    zip.file(fileName, doc.output("blob"));
   });
-  doc.save(`assessment-massal-${subs.length}-data-${Date.now()}.pdf`);
+  try{
+    const content = await zip.generateAsync({ type:"blob" });
+    const url = URL.createObjectURL(content);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `assessment-massal-${subs.length}-data-${Date.now()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch(err){
+    toast("Gagal membuat file ZIP: " + err.message);
+  }
 }
 
 /* ---------------- PDF Full Assessment (ringkasan per-bagian) ---------------- */
