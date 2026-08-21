@@ -440,6 +440,14 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
 .asnaf-badges{ display:flex; flex-wrap:wrap; gap:8px; }
 .asnaf-badge{ background: var(--accent-tint); color:#6B4E10; border:1px solid #E9D7A6; padding:6px 13px; border-radius:999px; font-size:12.5px; font-weight:700; }
 .asnaf-badge-empty{ background: var(--surface-sunken); color: var(--ink-faint); border:1px solid var(--line); font-weight:500; }
+
+/* Dashboard admin: bar aksi massal (checkbox terpilih) */
+.bulk-bar{
+  display:flex; align-items:center; gap:12px; background: var(--primary-dark); color:#fff;
+  padding:12px 18px; border-radius: var(--radius-m); margin-bottom:14px; font-size:13.5px; font-weight:600;
+}
+.bulk-bar .btn-accent{ margin-left:auto; }
+.data-table-wrap input[type=checkbox], .review-item input[type=checkbox]{ width:16px; height:16px; accent-color: var(--primary); cursor:pointer; }
 </style>
 </head>
 <body>
@@ -1318,6 +1326,16 @@ function renderRapidBody(shell){
 
   if(!rapidSession){ shell.appendChild(renderSessionSetup(shell)); return; }
 
+  if(rapidMode){
+    shell.appendChild(el("div",{style:"margin-bottom:14px;"},
+      el("button",{class:"btn btn-ghost btn-sm", onclick:()=>{
+        rapidMode = null;
+        if(reviewUnsub){ reviewUnsub(); reviewUnsub=null; }
+        renderRapidBody(shell);
+      }}, "← Ganti Cara Pengisian")
+    ));
+  }
+
   shell.appendChild(renderProgramBar(shell));
 
   if(!rapidMode){ shell.appendChild(renderModeChoice(shell)); return; }
@@ -1343,6 +1361,7 @@ function renderSessionHistoryPanel(){
 }
 
 /* ---------------- Tahap 1: Data Program + tanda tangan sesi ---------------- */
+const PROGRAM_KATEGORI_OPTIONS = ["Layanan Ambulance","Bantuan Kesehatan","Khitanan Massal","Bantuan Perlengkapan Sekolah","Sembako / Sarapan Bergizi Gratis","Lainnya"];
 function renderSessionSetup(shell){
   const temp = {};
   sigSession = null;
@@ -1360,6 +1379,10 @@ function renderSessionSetup(shell){
       plainField("Lokasi Penyaluran", v=>temp.lokasi_penyaluran=v),
       plainField("Nama Petugas / Amil", v=>temp.nama_petugas=v, "text", true),
     ),
+    el("div",{class:"row2"},
+      plainPhoneField("No. Telepon Petugas Surveyor", v=>temp.telp_petugas=v, true),
+      plainSelectField("Kategori Program", PROGRAM_KATEGORI_OPTIONS, v=>temp.kategori_program=v, true),
+    ),
   );
   const sigBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, "Tanda Tangan Petugas / Amil (berlaku untuk seluruh sesi ini)"));
   sigSession = createSignaturePad();
@@ -1369,6 +1392,8 @@ function renderSessionSetup(shell){
   panel.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
     el("button",{class:"btn btn-primary", onclick: async ()=>{
       if(!temp.nama_program || !temp.nama_petugas){ toast("Nama Program dan Nama Petugas wajib diisi."); return; }
+      if(!temp.telp_petugas || !isValidPhone(temp.telp_petugas)){ toast("No. Telepon Petugas Surveyor wajib diisi dengan format angka yang benar."); return; }
+      if(!temp.kategori_program){ toast("Mohon pilih Kategori Program."); return; }
       if(sigSession.isEmpty()){ toast("Mohon bubuhkan tanda tangan petugas terlebih dahulu."); return; }
       await ensureAnonAuth();
       if(!FIREBASE_NOT_CONFIGURED && auth && !auth.currentUser){
@@ -1393,6 +1418,29 @@ function renderSessionSetup(shell){
   ));
   return panel;
 }
+function plainPhoneField(label, onInput, required){
+  const wrap = el("div",{class:"field"});
+  wrap.appendChild(el("label",{class:"q"}, label, required?el("span",{class:"req"}," *"):null));
+  const inp = el("input",{type:"text", inputmode:"tel"});
+  inp.addEventListener("input", ()=>{
+    const cleaned = inp.value.replace(/[^\d+]/g,"");
+    inp.value = cleaned;
+    onInput(cleaned);
+  });
+  wrap.appendChild(inp);
+  wrap.appendChild(el("div",{class:"hint"}, "Contoh: 081234567890"));
+  return wrap;
+}
+function plainSelectField(label, options, onInput, required){
+  const wrap = el("div",{class:"field"});
+  wrap.appendChild(el("label",{class:"q"}, label, required?el("span",{class:"req"}," *"):null));
+  const sel = el("select",{});
+  sel.appendChild(el("option",{value:""}, "Pilih..."));
+  options.forEach(opt=> sel.appendChild(el("option",{value:opt}, opt)));
+  sel.addEventListener("change", ()=> onInput(sel.value));
+  wrap.appendChild(sel);
+  return wrap;
+}
 function plainField(label, onInput, type="text", required){
   const wrap = el("div",{class:"field"});
   wrap.appendChild(el("label",{class:"q"}, label, required?el("span",{class:"req"}," *"):null));
@@ -1408,9 +1456,11 @@ function renderProgramBar(shell){
       el("div",{class:"program-bar-label"}, "A. Data Program — Sesi Aktif"),
       el("div",{class:"program-bar-grid"},
         programChip("Nama Program", rapidSession.nama_program),
+        programChip("Kategori Program", rapidSession.kategori_program),
         programChip("Tgl Pelaksanaan", rapidSession.tgl_pelaksanaan),
         programChip("Lokasi Penyaluran", rapidSession.lokasi_penyaluran),
         programChip("Petugas / Amil", rapidSession.nama_petugas),
+        programChip("No. Telepon Petugas", rapidSession.telp_petugas),
       )
     ),
     el("button",{class:"btn btn-ghost", onclick:()=>{
@@ -1836,8 +1886,7 @@ function renderDirectForm(shell){
   sigGrid.appendChild(pengajuBox);
   panel.appendChild(sigGrid);
 
-  panel.appendChild(el("div",{class:"step-foot"},
-    el("button",{class:"btn btn-ghost", onclick:()=>{ rapidMode=null; if(reviewUnsub){reviewUnsub();reviewUnsub=null;} renderRapidBody(shell); }}, "← Ganti Cara Pengisian"),
+  panel.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
     el("button",{class:"btn btn-primary", id:"rapid-submit-btn", onclick:()=>submitDirect(shell)}, "Kirim ke Admin →")
   ));
   return panel;
@@ -1874,6 +1923,8 @@ async function submitDirect(shell){
     program_tgl: rapidSession.tgl_pelaksanaan,
     program_lokasi: rapidSession.lokasi_penyaluran,
     program_petugas: rapidSession.nama_petugas,
+    program_telp_petugas: rapidSession.telp_petugas,
+    program_kategori: rapidSession.kategori_program,
     ttd_petugas: rapidSession.petugas_signature,
     ttd_pengaju: sigPengaju.toDataURL(),
     diisi_oleh: "surveyor",
@@ -1934,10 +1985,6 @@ function renderLinkMode(shell){
     el("div",{class:"step-head"}, el("div",{class:"eyebrow"}, "Siap Dikirim"), el("h2",{style:"font-size:19px;"}, "Sudah Direview")),
     el("div",{id:"review-ready-list"}, el("div",{class:"empty-state"}, "Belum ada.")),
     el("div",{id:"review-ready-actions"})
-  ));
-
-  wrap.appendChild(el("div",{class:"step-foot", style:"border-top:none;"},
-    el("button",{class:"btn btn-ghost", onclick:()=>{ rapidMode=null; if(reviewUnsub){reviewUnsub();reviewUnsub=null;} renderRapidBody(shell); }}, "← Ganti Cara Pengisian")
   ));
 
   return wrap;
@@ -2095,8 +2142,9 @@ async function saveReview(sub, reviewState){
 async function submitBatchToAdmin(list){
   if(!confirm(`Kirim ${list.length} data yang sudah direview ke Admin?`)) return;
   try{
+    const batchId = "batch-" + uid() + "-" + Date.now();
     const batch = db.batch();
-    list.forEach(sub=>{ batch.update(db.collection(COLLECTION).doc(sub.id), { status_review: "pending" }); });
+    list.forEach(sub=>{ batch.update(db.collection(COLLECTION).doc(sub.id), { status_review: "pending", batch_id: batchId }); });
     await batch.commit();
     notifyAdmin(`${list.length} data Rapid Assessment baru dikirim oleh ${rapidSession.nama_petugas} (${rapidSession.nama_program}).`);
     toast(`${list.length} data berhasil dikirim ke Admin.`);
@@ -2226,6 +2274,8 @@ async function submitSelfFill(shell, sessionId, session){
     program_tgl: session.tgl_pelaksanaan,
     program_lokasi: session.lokasi_penyaluran,
     program_petugas: session.nama_petugas,
+    program_telp_petugas: session.telp_petugas,
+    program_kategori: session.kategori_program,
     ttd_pengaju: sigSelf.toDataURL(),
     diisi_oleh: "peserta_sendiri",
     jenis_form: "rapid_assessment",
@@ -2318,8 +2368,10 @@ function doLogout(){ if(auth) auth.signOut().then(()=>location.hash = "#/"); }
    ================================================================ */
 let ALL_SUBMISSIONS = [];
 let unsubscribeSnapshot = null;
+let SELECTED_IDS = new Set();
 
 function renderDashboard(shell, user){
+  SELECTED_IDS = new Set();
   shell.innerHTML = "";
   shell.appendChild(el("div",{class:"dash-head"},
     el("div",{}, el("h1",{},"Dashboard Assessment"), el("div",{style:"color:var(--ink-muted);font-size:13px;margin-top:4px;"}, "Masuk sebagai " + user.email)),
@@ -2344,8 +2396,14 @@ function renderDashboard(shell, user){
       el("option",{value:"attention"},"Perlu Perhatian Khusus"),
       el("option",{value:"rejected"},"Tidak Layak"),
     ),
+    el("select",{id:"filter-bulan", onchange: renderTable}, el("option",{value:""},"Semua Bulan")),
+    el("select",{id:"filter-kategori", onchange: renderTable}, el("option",{value:""},"Semua Kategori Program")),
   );
   shell.appendChild(toolbar);
+  shell.appendChild(renderLocationFilterRow());
+
+  const bulkBar = el("div",{id:"bulk-action-bar"});
+  shell.appendChild(bulkBar);
 
   const tableWrap = el("div",{class:"data-table-wrap", id:"table-wrap"});
   shell.appendChild(tableWrap);
@@ -2360,12 +2418,119 @@ function renderDashboard(shell, user){
     // surveyor menekan "Kirim ke Admin" / "Submit Semua ke Admin".
     ALL_SUBMISSIONS = snap.docs.map(d=>({ id:d.id, ...d.data() }))
       .filter(s => s.status_review !== "awaiting_review" && s.status_review !== "surveyor_reviewed");
+    populateDynamicFilters();
     renderStats(statRow);
     renderTable();
   }, err=>{
     tableWrap.innerHTML = "";
     tableWrap.appendChild(el("div",{class:"empty-state"}, el("div",{class:"big"},"⚠️"), "Gagal memuat data: " + friendlyFirestoreError(err)));
   });
+}
+
+/* ---------------- Filter: Bulan & Kategori Program (opsi dibangun dari data yang ada) ---------------- */
+function getSubDate(s){
+  if(!s.submittedAt) return null;
+  if(typeof s.submittedAt.toDate === "function") return s.submittedAt.toDate();
+  const d = new Date(s.submittedAt);
+  return isNaN(d) ? null : d;
+}
+function monthKeyOf(s){
+  const d = getSubDate(s);
+  if(!d) return "";
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+const MONTH_NAMES_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+function monthLabel(key){
+  const [y,m] = key.split("-");
+  return `${MONTH_NAMES_ID[parseInt(m,10)-1]} ${y}`;
+}
+function populateDynamicFilters(){
+  const bulanSel = $("#filter-bulan");
+  if(bulanSel){
+    const cur = bulanSel.value;
+    const months = Array.from(new Set(ALL_SUBMISSIONS.map(monthKeyOf).filter(Boolean))).sort().reverse();
+    bulanSel.innerHTML = "";
+    bulanSel.appendChild(el("option",{value:""},"Semua Bulan"));
+    months.forEach(m=> bulanSel.appendChild(el("option",{value:m}, monthLabel(m))));
+    if(months.includes(cur)) bulanSel.value = cur;
+  }
+  const katSel = $("#filter-kategori");
+  if(katSel){
+    const cur = katSel.value;
+    const kats = Array.from(new Set(ALL_SUBMISSIONS.map(s=>s.program_kategori).filter(Boolean))).sort();
+    katSel.innerHTML = "";
+    katSel.appendChild(el("option",{value:""},"Semua Kategori Program"));
+    kats.forEach(k=> katSel.appendChild(el("option",{value:k}, k)));
+    if(kats.includes(cur)) katSel.value = cur;
+  }
+}
+
+/* ---------------- Filter: Lokasi bertingkat (pakai API wilayah yang sama dengan formulir) ---------------- */
+function renderLocationFilterRow(){
+  const selProv = wilayahSelect("filter-loc-prov", "Semua Provinsi");
+  const selKota = wilayahSelect("filter-loc-kota", "Semua Kota/Kab.");
+  const selKec = wilayahSelect("filter-loc-kec", "Semua Kecamatan");
+  const selDesa = wilayahSelect("filter-loc-desa", "Semua Desa/Kelurahan");
+  selProv.disabled = false;
+  selKota.disabled = false; selKec.disabled = false; selDesa.disabled = false;
+
+  fetchWilayah("provinces.json").then(list=>{
+    resetWilayahSelect(selProv, "Semua Provinsi", false);
+    list.forEach(p=> selProv.appendChild(el("option",{value:p.name, "data-id":p.id}, p.name)));
+  }).catch(()=> resetWilayahSelect(selProv, "Gagal memuat", true));
+
+  selProv.addEventListener("change", async ()=>{
+    resetWilayahSelect(selKota, "Semua Kota/Kab.", false);
+    resetWilayahSelect(selKec, "Semua Kecamatan", false);
+    resetWilayahSelect(selDesa, "Semua Desa/Kelurahan", false);
+    const provId = selProv.selectedOptions[0]?.dataset.id;
+    if(provId){
+      try{
+        const list = await fetchWilayah(`regencies/${provId}.json`);
+        list.forEach(r=> selKota.appendChild(el("option",{value:r.name, "data-id":r.id}, r.name)));
+      } catch(e){ /* biarkan tetap "Semua Kota/Kab." jika gagal */ }
+    }
+    renderTable();
+  });
+  selKota.addEventListener("change", async ()=>{
+    resetWilayahSelect(selKec, "Semua Kecamatan", false);
+    resetWilayahSelect(selDesa, "Semua Desa/Kelurahan", false);
+    const kotaId = selKota.selectedOptions[0]?.dataset.id;
+    if(kotaId){
+      try{
+        const list = await fetchWilayah(`districts/${kotaId}.json`);
+        list.forEach(d=> selKec.appendChild(el("option",{value:d.name, "data-id":d.id}, d.name)));
+      } catch(e){}
+    }
+    renderTable();
+  });
+  selKec.addEventListener("change", async ()=>{
+    resetWilayahSelect(selDesa, "Semua Desa/Kelurahan", false);
+    const kecId = selKec.selectedOptions[0]?.dataset.id;
+    if(kecId){
+      try{
+        const list = await fetchWilayah(`villages/${kecId}.json`);
+        list.forEach(v=> selDesa.appendChild(el("option",{value:v.name}, v.name)));
+      } catch(e){}
+    }
+    renderTable();
+  });
+  selDesa.addEventListener("change", renderTable);
+
+  return el("div",{class:"toolbar", style:"margin-top:-8px;"},
+    el("span",{class:"hint", style:"align-self:center;"}, "Filter Lokasi:"),
+    selProv, selKota, selKec, selDesa,
+  );
+}
+function matchesLoc(s, level, name){
+  const nameLC = name.toLowerCase();
+  const fieldsMap = {
+    prov: [s.provinsi, s.alamat_prov],
+    kota: [s.kota_kab, s.alamat_kota],
+    kec: [s.kecamatan, s.alamat_kec],
+    desa: [s.desa_kelurahan, s.alamat_kel],
+  };
+  return (fieldsMap[level]||[]).some(v=> v && v.toLowerCase().includes(nameLC));
 }
 
 async function toggleSettingsPanel(){
@@ -2431,47 +2596,148 @@ function badgeFor(status){
   return el("span",{class:"badge "+cls}, el("span",{class:"dot"}), label);
 }
 
-function renderTable(){
-  const tableWrap = $("#table-wrap");
-  if(!tableWrap) return;
+function getFilteredFlatList(){
   const q = ($("#search-input")?.value || "").toLowerCase();
   const statusFilter = $("#filter-status")?.value || "";
   const jenisFilter = $("#filter-jenis")?.value || "";
+  const bulanFilter = $("#filter-bulan")?.value || "";
+  const kategoriFilter = $("#filter-kategori")?.value || "";
+  const locProv = $("#filter-loc-prov")?.value || "";
+  const locKota = $("#filter-loc-kota")?.value || "";
+  const locKec = $("#filter-loc-kec")?.value || "";
+  const locDesa = $("#filter-loc-desa")?.value || "";
 
-  let rows = ALL_SUBMISSIONS.filter(s=>{
+  return ALL_SUBMISSIONS.filter(s=>{
     const surveyorName = s.nama_surveyor || s.nama_petugas_ttd || s.program_petugas || "";
     const matchQ = !q || [s.nama_pengaju, s.nik, surveyorName].join(" ").toLowerCase().includes(q);
     const matchStatus = !statusFilter || statusOf(s) === statusFilter;
     const matchJenis = !jenisFilter || s.jenis_form === jenisFilter;
-    return matchQ && matchStatus && matchJenis;
+    const matchBulan = !bulanFilter || monthKeyOf(s) === bulanFilter;
+    const matchKategori = !kategoriFilter || s.program_kategori === kategoriFilter;
+    const matchProv = !locProv || matchesLoc(s,"prov",locProv);
+    const matchKota = !locKota || matchesLoc(s,"kota",locKota);
+    const matchKec = !locKec || matchesLoc(s,"kec",locKec);
+    const matchDesa = !locDesa || matchesLoc(s,"desa",locDesa);
+    return matchQ && matchStatus && matchJenis && matchBulan && matchKategori && matchProv && matchKota && matchKec && matchDesa;
   });
+}
+/* Kelompokkan hasil submit massal (punya batch_id sama) jadi 1 baris ringkas di tabel,
+   supaya 10 data yang dikirim sekaligus tidak memenuhi tabel dengan 10 baris terpisah. */
+function groupSubmissions(list){
+  const batchIndex = {};
+  const rows = [];
+  list.forEach(sub=>{
+    if(sub.batch_id){
+      if(!batchIndex[sub.batch_id]){
+        batchIndex[sub.batch_id] = { type:"batch", batch_id: sub.batch_id, subs: [] };
+        rows.push(batchIndex[sub.batch_id]);
+      }
+      batchIndex[sub.batch_id].subs.push(sub);
+    } else {
+      rows.push({ type:"single", sub });
+    }
+  });
+  return rows;
+}
+function rowIds(row){ return row.type==="single" ? [row.sub.id] : row.subs.map(s=>s.id); }
+function isRowSelected(row){ const ids=rowIds(row); return ids.length>0 && ids.every(id=>SELECTED_IDS.has(id)); }
+
+function renderTable(){
+  const tableWrap = $("#table-wrap");
+  if(!tableWrap) return;
+  const flat = getFilteredFlatList();
+  const rows = groupSubmissions(flat);
 
   tableWrap.innerHTML = "";
   if(rows.length === 0){
     tableWrap.appendChild(el("div",{class:"empty-state"}, el("div",{class:"big"},"🗂️"), "Belum ada data yang cocok."));
+    renderBulkActionBar();
     return;
   }
 
   const table = el("table",{class:"data-table"});
+  const selectAllCb = el("input",{type:"checkbox", checked: rows.length>0 && rows.every(isRowSelected) ? "checked" : null,
+    onchange:(e)=>{ toggleSelectAllRows(rows, e.target.checked); }});
   table.appendChild(el("thead",{}, el("tr",{},
+    el("th",{style:"width:34px;"}, selectAllCb),
     el("th",{},"Jenis Form"), el("th",{},"Nama Pengaju"), el("th",{},"NIK"), el("th",{},"Surveyor / Petugas"),
     el("th",{},"Kategori HK"), el("th",{},"Kelayakan"), el("th",{},"Status Admin")
   )));
   const tbody = el("tbody",{});
-  rows.forEach(sub=>{
-    const surveyorName = sub.nama_surveyor || sub.nama_petugas_ttd || sub.program_petugas || "—";
-    tbody.appendChild(el("tr",{class:"rowlink", onclick:()=>openDetail(sub)},
-      el("td",{}, jenisFormLabel(sub.jenis_form)),
-      el("td",{}, el("strong",{}, sub.nama_pengaju || "—")),
-      el("td",{class:"mono"}, sub.nik || "—"),
-      el("td",{}, surveyorName),
-      el("td",{}, sub.kategori_had_kifayah || "—"),
-      el("td",{}, sub.kelayakan || "—"),
-      el("td",{}, badgeFor(statusOf(sub))),
-    ));
+  rows.forEach(row=>{
+    if(row.type === "batch"){
+      const first = row.subs[0];
+      const cb = el("input",{type:"checkbox", checked: isRowSelected(row)?"checked":null,
+        onclick:(e)=>e.stopPropagation(), onchange:(e)=>{ toggleRowSelect(row, e.target.checked); }});
+      tbody.appendChild(el("tr",{class:"rowlink", onclick:()=>openBatchDetail(row)},
+        el("td",{}, cb),
+        el("td",{}, jenisFormLabel(first.jenis_form)),
+        el("td",{}, el("strong",{}, `📦 ${row.subs.length} data`), el("div",{class:"hint"}, first.program_nama||"")),
+        el("td",{class:"mono"}, "—"),
+        el("td",{}, first.program_petugas || "—"),
+        el("td",{}, "—"), el("td",{}, "—"),
+        el("td",{}, el("span",{class:"hint"}, "Klik untuk lihat detail →")),
+      ));
+    } else {
+      const sub = row.sub;
+      const surveyorName = sub.nama_surveyor || sub.nama_petugas_ttd || sub.program_petugas || "—";
+      const cb = el("input",{type:"checkbox", checked: isRowSelected(row)?"checked":null,
+        onclick:(e)=>e.stopPropagation(), onchange:(e)=>{ toggleRowSelect(row, e.target.checked); }});
+      tbody.appendChild(el("tr",{class:"rowlink", onclick:()=>openDetail(sub)},
+        el("td",{}, cb),
+        el("td",{}, jenisFormLabel(sub.jenis_form)),
+        el("td",{}, el("strong",{}, sub.nama_pengaju || "—")),
+        el("td",{class:"mono"}, sub.nik || "—"),
+        el("td",{}, surveyorName),
+        el("td",{}, sub.kategori_had_kifayah || "—"),
+        el("td",{}, sub.kelayakan || "—"),
+        el("td",{}, badgeFor(statusOf(sub))),
+      ));
+    }
   });
   table.appendChild(tbody);
   tableWrap.appendChild(table);
+  renderBulkActionBar();
+}
+function toggleRowSelect(row, checked){
+  rowIds(row).forEach(id=> checked ? SELECTED_IDS.add(id) : SELECTED_IDS.delete(id));
+  renderTable();
+}
+function toggleSelectAllRows(rows, checked){
+  rows.forEach(row=> rowIds(row).forEach(id=> checked ? SELECTED_IDS.add(id) : SELECTED_IDS.delete(id)));
+  renderTable();
+}
+function renderBulkActionBar(){
+  const box = $("#bulk-action-bar");
+  if(!box) return;
+  box.innerHTML = "";
+  if(SELECTED_IDS.size === 0) return;
+  const selectedSubs = ALL_SUBMISSIONS.filter(s=>SELECTED_IDS.has(s.id));
+  box.appendChild(el("div",{class:"bulk-bar"},
+    el("span",{}, `${selectedSubs.length} data dipilih`),
+    el("button",{class:"btn btn-accent btn-sm", onclick:()=>generateBulkPDF(selectedSubs)}, "🖨️ Generate PDF Massal"),
+    el("button",{class:"btn btn-ghost btn-sm", onclick:()=>{ SELECTED_IDS.clear(); renderTable(); }}, "Batal Pilih"),
+  ));
+}
+function openBatchDetail(batchRow){
+  const backdrop = el("div",{class:"drawer-backdrop", onclick:closeDetail});
+  const drawer = el("div",{class:"drawer"});
+  const first = batchRow.subs[0];
+  drawer.appendChild(el("div",{class:"drawer-head"}, el("h3",{}, `Batch — ${batchRow.subs.length} Data`), el("button",{onclick:closeDetail}, "✕")));
+  const body = el("div",{class:"drawer-body"});
+  body.appendChild(dsection("Info Pengiriman Massal", [
+    ["Program", first.program_nama], ["Kategori Program", first.program_kategori],
+    ["Petugas", first.program_petugas], ["Jumlah Data", batchRow.subs.length],
+  ]));
+  body.appendChild(el("div",{class:"dsection"}, el("h4",{},"Daftar Data — klik salah satu untuk lihat detail"),
+    ...batchRow.subs.map(sub=> el("div",{class:"review-item", style:"cursor:pointer;", onclick:()=>{ closeDetail(); openDetail(sub); }},
+      el("div",{}, el("div",{class:"review-item-name"}, sub.nama_pengaju || "—"), el("div",{class:"review-item-sub"}, `NIK ${sub.nik||"—"} · ${sub.kelayakan||"—"}`)),
+      badgeFor(statusOf(sub))
+    ))
+  ));
+  drawer.appendChild(body);
+  document.body.appendChild(backdrop);
+  document.body.appendChild(drawer);
 }
 function jenisFormLabel(jenis){
   const map = { full_assessment: "Full", rapid_assessment: "Rapid", community_development: "CommDev" };
@@ -2611,14 +2877,29 @@ function badgeLabelText(status){
 }
 function generateAssessmentPDF(sub){
   if(typeof window.jspdf === "undefined"){ toast("Modul PDF gagal dimuat (periksa koneksi internet)."); return; }
-  if(sub.jenis_form === "rapid_assessment") generateRapidAssessmentPDF(sub);
-  else generateFullAssessmentPDF(sub);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  if(sub.jenis_form === "rapid_assessment") drawRapidAssessmentPDF(doc, sub);
+  else drawFullAssessmentPDF(doc, sub);
+  const kind = sub.jenis_form === "rapid_assessment" ? "rapid-assessment" : "full-assessment";
+  doc.save(`${kind}-${(sub.nama_pengaju||sub.nama||"data").replace(/\s+/g,"_")}.pdf`);
+}
+/* Cetak PDF gabungan (banyak entri jadi 1 file, tiap entri di halaman baru) — dipakai aksi massal Admin. */
+function generateBulkPDF(subs){
+  if(typeof window.jspdf === "undefined"){ toast("Modul PDF gagal dimuat (periksa koneksi internet)."); return; }
+  if(!subs.length) return;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  subs.forEach((sub,i)=>{
+    if(i>0) doc.addPage();
+    if(sub.jenis_form === "rapid_assessment") drawRapidAssessmentPDF(doc, sub);
+    else drawFullAssessmentPDF(doc, sub);
+  });
+  doc.save(`assessment-massal-${subs.length}-data-${Date.now()}.pdf`);
 }
 
 /* ---------------- PDF Full Assessment (ringkasan per-bagian) ---------------- */
-function generateFullAssessmentPDF(sub){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+function drawFullAssessmentPDF(doc, sub){
   let y = 18;
 
   doc.setFont("helvetica","bold"); doc.setFontSize(14);
@@ -2669,8 +2950,6 @@ function generateFullAssessmentPDF(sub){
   };
   addSignature("Tanda Tangan Penerima Manfaat:", sub.ttd_pengaju);
   addSignature("Tanda Tangan Petugas:", sub.ttd_petugas);
-
-  doc.save(`full-assessment-${(sub.nama_pengaju||"data").replace(/\s+/g,"_")}.pdf`);
 }
 
 /* ---------------- PDF Rapid Assessment — mengikuti tata letak form kertas asli ---------------- */
@@ -2732,9 +3011,7 @@ function pdfSectionHeader(doc, x, y, width, code, title){
   doc.setTextColor(15,15,15);
   return y + 6.5 + 6;
 }
-function generateRapidAssessmentPDF(sub){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+function drawRapidAssessmentPDF(doc, sub){
   const pageW = 210, marginX = 14, contentW = pageW - marginX*2, halfW = contentW/2 + 5;
   let y = 16;
 
@@ -2749,10 +3026,11 @@ function generateRapidAssessmentPDF(sub){
   const ensureSpace = (needed) => { if(y + needed > 285){ doc.addPage(); y = 16; } };
 
   // A. DATA PROGRAM
-  ensureSpace(28);
+  ensureSpace(34);
   y = pdfSectionHeader(doc, marginX, y, contentW, "A", "DATA PROGRAM");
-  y = pdfFieldPair(doc, marginX, y, halfW, "Nama Program", sub.program_nama, "Tgl. Pelaksanaan", sub.program_tgl);
-  y = pdfFieldPair(doc, marginX, y, halfW, "Lokasi Penyaluran", sub.program_lokasi, "Nama Petugas/Amil", sub.program_petugas);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Nama Program", sub.program_nama, "Kategori Program", sub.program_kategori);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Tgl. Pelaksanaan", sub.program_tgl, "Lokasi Penyaluran", sub.program_lokasi);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Nama Petugas/Amil", sub.program_petugas, "No. Telepon Petugas", sub.program_telp_petugas);
   y += 4;
 
   // B. IDENTITAS CALON PENERIMA MANFAAT
@@ -2827,8 +3105,6 @@ function generateRapidAssessmentPDF(sub){
   y += 4;
   doc.text(sub.phone_petugas_ttd ? `(${sub.phone_petugas_ttd})` : "", leftX, y);
   doc.text(sub.telp ? `(${sub.telp})` : "", rightX, y);
-
-  doc.save(`rapid-assessment-${(sub.nama_pengaju||sub.nama||"data").replace(/\s+/g,"_")}.pdf`);
 }
 
 /* ================================================================
