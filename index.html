@@ -128,6 +128,18 @@ a{ color: var(--primary); }
 @media (max-width: 640px){ .landing .choices{ grid-template-columns:1fr; } }
 @media (max-width: 880px) and (min-width:641px){ .choices-3{ grid-template-columns: 1fr 1fr; } }
 
+.active-session-banner{
+  display:flex; align-items:center; gap:10px; background: var(--accent-tint); border:1px solid #E9D7A6;
+  color:#6B4E10; padding:12px 18px; border-radius: var(--radius-m); font-size:13.5px; font-weight:600;
+  text-decoration:none; margin-bottom:20px;
+}
+.active-session-banner:hover{ filter: brightness(.97); }
+.dot-pulse{
+  width:9px; height:9px; border-radius:50%; background: var(--accent); flex:none;
+  animation: dot-pulse-anim 1.6s ease-in-out infinite;
+}
+@keyframes dot-pulse-anim{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+
 /* ============================================================
    WIZARD (Survey Form)
    ============================================================ */
@@ -622,11 +634,19 @@ window.addEventListener("hashchange", route);
    LANDING
    ================================================================ */
 function renderLanding(app){
-  app.appendChild(el("div",{class:"landing"},
+  const wrap = el("div",{class:"landing"},
     el("div",{class:"eyebrow", style:"color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;"}, "Puskas BAZNAS · Had Kifayah"),
     el("h1",{}, "Aplikasi Pooling Data Had Kifayah"),
     el("p",{class:"lede"}, "Platform assessment kelayakan calon penerima manfaat dana zakat untuk surveyor di lapangan dan admin program."),
-    el("div",{class:"choices choices-3"},
+  );
+  const savedRef = loadActiveSessionRef();
+  if(savedRef || rapidSession){
+    wrap.appendChild(el("a",{href:"#/survey/rapid", class:"active-session-banner"},
+      el("span",{class:"dot-pulse"}),
+      el("span",{}, rapidSession ? `Sesi Rapid Assessment "${rapidSession.nama_program}" masih berjalan — lanjutkan →` : "Anda punya sesi Rapid Assessment yang belum diakhiri — lanjutkan →")
+    ));
+  }
+  wrap.appendChild(el("div",{class:"choices choices-3"},
       el("a",{class:"choice-card", href:"#/survey/full"},
         el("div",{class:"eyebrow"}, "Surveyor · Tanpa Login"),
         el("h3",{}, "Full Assessment"),
@@ -642,11 +662,11 @@ function renderLanding(app){
         el("h3",{}, "Community Development"),
         el("p",{}, "Assessment tidak langsung untuk bantuan infrastruktur & fasilitas umum bersifat komunal.")
       ),
-    ),
-    el("div",{style:"margin-top:28px;"},
-      el("a",{href:"#/admin", class:"btn btn-ghost"}, "Login Admin →")
-    )
   ));
+  wrap.appendChild(el("div",{style:"margin-top:28px;"},
+      el("a",{href:"#/admin", class:"btn btn-ghost"}, "Login Admin →")
+  ));
+  app.appendChild(wrap);
 }
 
 /* ================================================================
@@ -1305,14 +1325,84 @@ async function notifyAdmin(message){
 }
 
 function renderRapidPage(app){
-  rapidSession = null; rapidMode = null; rapidForm = {}; rapidCount = 0;
+  // PENTING: TIDAK mereset rapidSession/rapidMode di sini. Surveyor sering berpindah ke
+  // Beranda (mis. untuk melihat menu lain) lalu kembali ke Rapid Assessment — sesi yang
+  // sedang berjalan (termasuk link yang sudah dibagikan & progres reviewnya) harus tetap ada
+  // selama tab browser belum ditutup/dimuat ulang. Untuk mengakhiri sesi, surveyor memakai
+  // tombol "Akhiri Sesi" di kartu Data Program (renderProgramBar), yang me-reset secara eksplisit.
   ensureAnonAuth();
   const wrap = el("div",{});
   wrap.appendChild(topbar(false));
   const shell = el("div",{class:"shell", id:"rapid-shell"});
   wrap.appendChild(shell);
   app.appendChild(wrap);
-  renderRapidBody(shell);
+
+  if(rapidSession){
+    // Sesi masih ada di memori (baru saja pindah menu, belum reload) — langsung lanjutkan.
+    renderRapidBody(shell);
+    return;
+  }
+  const savedRef = loadActiveSessionRef();
+  if(savedRef && !FIREBASE_NOT_CONFIGURED){
+    // Memori JS sudah hilang (mis. halaman dimuat ulang) tapi ada jejak sesi tersimpan —
+    // tawarkan untuk memuat ulang sesi tsb dari Firestore alih-alih langsung mulai dari nol.
+    renderResumePrompt(shell, savedRef);
+  } else {
+    renderRapidBody(shell);
+  }
+}
+
+/* ---------------- Persistensi referensi sesi aktif (tahan reload halaman) ----------------
+   Firestore tetap jadi sumber kebenaran data sesi; localStorage cuma menyimpan "id sesi mana
+   yang sedang aktif" supaya bisa ditawarkan untuk dilanjutkan setelah halaman dimuat ulang. */
+const RAPID_SESSION_STORAGE_KEY = "had_kifayah_active_rapid_session";
+function saveActiveSessionRef(sessionId, mode){
+  try{ localStorage.setItem(RAPID_SESSION_STORAGE_KEY, JSON.stringify({ id: sessionId, mode: mode||null, savedAt: Date.now() })); } catch(e){ /* localStorage tidak tersedia, abaikan */ }
+}
+function loadActiveSessionRef(){
+  try{ const raw = localStorage.getItem(RAPID_SESSION_STORAGE_KEY); return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
+}
+function clearActiveSessionRef(){
+  try{ localStorage.removeItem(RAPID_SESSION_STORAGE_KEY); } catch(e){ /* abaikan */ }
+}
+function renderResumePrompt(shell, savedRef){
+  shell.innerHTML = "";
+  shell.appendChild(el("div",{class:"rapid-head"},
+    el("div",{style:"color:var(--accent);font-weight:700;font-size:11px;letter-spacing:.6px;text-transform:uppercase;"}, "Rapid Assessment · Layanan Massal"),
+    el("h1",{style:"font-size:24px;margin-top:4px;"}, "Form Rapid Assessment Individu"),
+  ));
+  shell.appendChild(el("div",{class:"step-panel"},
+    el("div",{class:"step-head"},
+      el("div",{class:"eyebrow"}, "Sesi Sebelumnya Ditemukan"),
+      el("h2",{}, "Lanjutkan Sesi yang Sedang Berjalan?"),
+      el("div",{class:"desc"}, "Halaman baru saja dimuat ulang, tapi Anda memiliki sesi Rapid Assessment yang belum diakhiri (mis. link masih dibagikan ke calon peserta). Lanjutkan untuk melihat progres pengisian, atau mulai sesi baru.")
+    ),
+    el("div",{class:"step-foot", style:"justify-content:flex-start;gap:12px;border-top:none;"},
+      el("button",{class:"btn btn-primary", id:"resume-session-btn", onclick: async ()=>{
+        const btn = $("#resume-session-btn");
+        btn.disabled = true; btn.textContent = "Memuat sesi...";
+        try{
+          const doc = await db.collection("rapid_sessions").doc(savedRef.id).get();
+          if(!doc.exists){
+            toast("Sesi sebelumnya tidak ditemukan lagi (mungkin sudah diakhiri dari perangkat lain).");
+            clearActiveSessionRef();
+            renderRapidBody(shell);
+            return;
+          }
+          rapidSession = { id: savedRef.id, ...doc.data() };
+          rapidMode = savedRef.mode || null;
+          renderRapidBody(shell);
+        } catch(err){
+          toast("Gagal memuat sesi: " + friendlyFirestoreError(err));
+          btn.disabled = false; btn.textContent = "↻ Lanjutkan Sesi";
+        }
+      }}, "↻ Lanjutkan Sesi"),
+      el("button",{class:"btn btn-ghost", onclick:()=>{
+        clearActiveSessionRef();
+        renderRapidBody(shell);
+      }}, "Mulai Sesi Baru")
+    )
+  ));
 }
 
 function renderRapidBody(shell){
@@ -1330,6 +1420,7 @@ function renderRapidBody(shell){
     shell.appendChild(el("div",{style:"margin-bottom:14px;"},
       el("button",{class:"btn btn-ghost btn-sm", onclick:()=>{
         rapidMode = null;
+        saveActiveSessionRef(rapidSession.id, null);
         if(reviewUnsub){ reviewUnsub(); reviewUnsub=null; }
         renderRapidBody(shell);
       }}, "← Ganti Cara Pengisian")
@@ -1412,6 +1503,7 @@ function renderSessionSetup(shell){
           const ref = await db.collection("rapid_sessions").add(sessionPayload);
           rapidSession = { id: ref.id, ...sessionPayload };
         }
+        saveActiveSessionRef(rapidSession.id, null);
         renderRapidBody(shell);
       } catch(err){ toast("Gagal memulai sesi: " + friendlyFirestoreError(err)); }
     }}, "Mulai Assessment →")
@@ -1467,6 +1559,7 @@ function renderProgramBar(shell){
       if(!confirm("Mengakhiri sesi ini dan kembali ke awal?")) return;
       if(reviewUnsub){ reviewUnsub(); reviewUnsub=null; }
       rapidSession=null; rapidMode=null; rapidCount=0;
+      clearActiveSessionRef();
       renderRapidBody(shell);
     }}, "Akhiri Sesi")
   );
@@ -1481,12 +1574,12 @@ function renderModeChoice(shell){
       el("div",{class:"desc"}, "Pilih salah satu cara pengumpulan data untuk sesi ini.")
     ),
     el("div",{class:"mode-choices"},
-      el("button",{class:"mode-card", type:"button", onclick:()=>{ rapidMode="direct"; renderRapidBody(shell); }},
+      el("button",{class:"mode-card", type:"button", onclick:()=>{ rapidMode="direct"; saveActiveSessionRef(rapidSession.id,"direct"); renderRapidBody(shell); }},
         el("div",{class:"mode-card-icon"}, "✍️"),
         el("h3",{}, "Isi Data Calon Peserta oleh Surveyor"),
         el("p",{}, "Surveyor mewawancarai dan mengisi formulir langsung. Data terkirim seketika ke Admin.")
       ),
-      el("button",{class:"mode-card", type:"button", onclick:()=>{ rapidMode="link"; renderRapidBody(shell); }},
+      el("button",{class:"mode-card", type:"button", onclick:()=>{ rapidMode="link"; saveActiveSessionRef(rapidSession.id,"link"); renderRapidBody(shell); }},
         el("div",{class:"mode-card-icon"}, "🔗"),
         el("h3",{}, "Bagikan Link ke Calon Peserta"),
         el("p",{}, "Calon peserta mengisi sendiri lewat link. Surveyor meninjau & menentukan kelayakan sebelum dikirim ke Admin.")
