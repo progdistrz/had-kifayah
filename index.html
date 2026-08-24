@@ -489,6 +489,18 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
 
       rules_version = '2';
       service cloud.firestore {
+        // "Antrian terbuka" = belum ditugaskan lewat Link Tugas siapa pun (assigned_by) DAN
+        // belum direview siapa pun (admin_status) — tetap terlihat semua dept supaya ada yang
+        // bisa mengambilnya. HARUS SAMA PERSIS dengan isOpenQueueItem() di index.html.
+        function isOpenQueue(data) {
+          return !("assigned_by" in data) && !("admin_status" in data);
+        }
+        // HARUS SAMA PERSIS dengan getVisibleSubmissionsForRole() di index.html.
+        function deptCanSee(data, deptEmails) {
+          return isOpenQueue(data) ||
+            (("assigned_by" in data) && data.assigned_by in deptEmails) ||
+            (("admin_status" in data) && data.admin_signed_by in deptEmails);
+        }
         match /databases/{database}/documents {
           match /rapid_sessions/{sessionId} {
             allow read, create: if request.auth != null; // termasuk anonymous
@@ -499,18 +511,18 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
             // - anonim (surveyor/calon peserta, token tanpa email) tetap boleh baca seperti sebelumnya
             //   (dipakai fitur Riwayat/Daftar Review milik surveyor).
             // - admin@progdist.erzet (Kepala Divisi): baca semua.
-            // - dept head + 2 bawahannya: hanya baca dokumen yang belum ada admin_status APAPUN
-            //   (masih di antrian, semua boleh lihat), ATAU yang admin_status-nya sudah ditentukan
-            //   oleh salah satu email dalam dept tsb (dirinya sendiri/dept head/bawahan lain di dept sama).
+            // - dept head + 2 bawahannya: baca dokumen "antrian terbuka", ATAU yang assigned_by
+            //   (ditugaskan lewat Link Tugas) / admin_signed_by (sudah direview) berasal dari
+            //   salah satu email dalam dept yang sama.
             allow read: if request.auth != null && (
               request.auth.token.email == null ||
               request.auth.token.email == "admin@progdist.erzet" ||
               (request.auth.token.email in ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"] &&
-                (!("admin_status" in resource.data) || resource.data.admin_signed_by in ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"])) ||
+                deptCanSee(resource.data, ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"])) ||
               (request.auth.token.email in ["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"] &&
-                (!("admin_status" in resource.data) || resource.data.admin_signed_by in ["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"])) ||
+                deptCanSee(resource.data, ["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"])) ||
               (request.auth.token.email in ["pem@progdist.erzet","mujib@progdist.erzet","rafi@progdist.erzet"] &&
-                (!("admin_status" in resource.data) || resource.data.admin_signed_by in ["pem@progdist.erzet","mujib@progdist.erzet","rafi@progdist.erzet"]))
+                deptCanSee(resource.data, ["pem@progdist.erzet","mujib@progdist.erzet","rafi@progdist.erzet"]))
             );
             allow delete: if request.auth != null && request.auth.token.email != null; // khusus admin
           }
@@ -606,18 +618,45 @@ function getRoleInfo(email){
   if(!email) return null;
   return ROLE_HIERARCHY[email.toLowerCase()] || null;
 }
+/* Item "antrian terbuka" — belum ditugaskan lewat Link Tugas siapa pun, dan belum direview
+   siapa pun — tetap terlihat oleh semua orang di hirarki supaya ada yang bisa mengambilnya. */
+function isOpenQueueItem(s){
+  return !s.assigned_by && !s.admin_status;
+}
 function getVisibleSubmissionsForRole(list, email){
   const info = getRoleInfo(email);
   if(!info) return [];
   if(info.role === "kepala_divisi") return list;
-  if(info.role === "dept_head"){
-    const allowed = new Set([...info.subordinates.map(s=>s.toLowerCase()), email.toLowerCase()]);
-    return list.filter(s => !s.admin_status || (s.admin_signed_by && allowed.has(s.admin_signed_by.toLowerCase())));
-  }
-  if(info.role === "subordinate"){
-    return list.filter(s => !s.admin_status || (s.admin_signed_by && s.admin_signed_by.toLowerCase() === email.toLowerCase()));
-  }
-  return [];
+  const allowed = info.role === "dept_head"
+    ? new Set([...info.subordinates.map(s=>s.toLowerCase()), email.toLowerCase()])
+    : new Set([email.toLowerCase()]);
+  return list.filter(s=>{
+    if(isOpenQueueItem(s)) return true;
+    const assignedToMe = s.assigned_by && allowed.has(s.assigned_by.toLowerCase());
+    const reviewedByMe = s.admin_status && s.admin_signed_by && allowed.has(s.admin_signed_by.toLowerCase());
+    return assignedToMe || reviewedByMe;
+  });
+}
+
+/* ================================================================
+   LINK TUGAS — pejabat/bawahan membagikan link pribadi ke surveyor.
+   ----------------------------------------------------------------
+   Formulir apa pun (Full/Rapid/CommDev) yang diisi lewat link ini
+   otomatis "terikat" ke pemberi tugas (field assigned_by), sehingga
+   langsung muncul di dashboard pemberi tugas + atasannya (tanpa
+   menunggu direview), dan TIDAK muncul di dept lain. Diagnosis
+   visibilitasnya ditentukan getVisibleSubmissionsForRole() di atas. */
+let ASSIGNED_BY = null;
+const ASSIGNED_BY_STORAGE_KEY = "had_kifayah_assigned_by";
+function saveAssignedByRef(email){
+  try{ localStorage.setItem(ASSIGNED_BY_STORAGE_KEY, email); } catch(e){ /* abaikan */ }
+}
+function loadAssignedByRef(){
+  try{ return localStorage.getItem(ASSIGNED_BY_STORAGE_KEY); } catch(e){ return null; }
+}
+function clearAssignedByRef(){
+  try{ localStorage.removeItem(ASSIGNED_BY_STORAGE_KEY); } catch(e){ /* abaikan */ }
+  ASSIGNED_BY = null;
 }
 
 /* ================================================================
@@ -697,6 +736,8 @@ function route(){
     renderRapidPage(app);
   } else if(hash.startsWith("isi/")){
     renderSelfFillPage(app, hash.slice(4));
+  } else if(hash.startsWith("tugas/")){
+    renderTugasLanding(app, decodeURIComponent(hash.slice(6)));
   } else if(hash === "admin"){
     renderAdminPage(app);
   } else {
@@ -705,25 +746,13 @@ function route(){
   window.scrollTo(0,0);
 }
 window.addEventListener("hashchange", route);
+if(!ASSIGNED_BY) ASSIGNED_BY = loadAssignedByRef();
 
 /* ================================================================
    LANDING
    ================================================================ */
-function renderLanding(app){
-  const wrap = el("div",{class:"landing"},
-    el("div",{class:"eyebrow", style:"color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px;"}, "Had Kifayah · Rumah Zakat"),
-    el("div",{style:"color:var(--ink-faint);font-size:12px;margin-bottom:14px;"}, "Mengacu kepada Puskas Baznas"),
-    el("h1",{}, "Aplikasi Pooling Data Had Kifayah"),
-    el("p",{class:"lede"}, "Platform assessment kelayakan calon penerima manfaat dana zakat"),
-  );
-  const savedRef = loadActiveSessionRef();
-  if(savedRef || rapidSession){
-    wrap.appendChild(el("a",{href:"#/survey/rapid", class:"active-session-banner"},
-      el("span",{class:"dot-pulse"}),
-      el("span",{}, rapidSession ? `Sesi Rapid Assessment "${rapidSession.nama_program}" masih berjalan — lanjutkan →` : "Anda punya sesi Rapid Assessment yang belum diakhiri — lanjutkan →")
-    ));
-  }
-  wrap.appendChild(el("div",{class:"choices choices-3"},
+function renderAssessmentChoices(){
+  return el("div",{class:"choices choices-3"},
       el("a",{class:"choice-card", href:"#/survey/full"},
         el("div",{class:"eyebrow"}, "Surveyor"),
         el("h3",{}, "Full Assessment"),
@@ -739,10 +768,62 @@ function renderLanding(app){
         el("h3",{}, "Community Development"),
         el("p",{}, "Assessment tidak langsung untuk bantuan infrastruktur & fasilitas umum bersifat komunal.")
       ),
-  ));
+  );
+}
+function renderLanding(app){
+  const wrap = el("div",{class:"landing"},
+    el("div",{class:"eyebrow", style:"color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px;"}, "Had Kifayah · Rumah Zakat"),
+    el("div",{style:"color:var(--ink-faint);font-size:12px;margin-bottom:14px;"}, "Mengacu kepada Puskas Baznas"),
+    el("h1",{}, "Aplikasi Pooling Data Had Kifayah"),
+    el("p",{class:"lede"}, "Platform assessment kelayakan calon penerima manfaat dana zakat"),
+  );
+  if(ASSIGNED_BY){
+    wrap.appendChild(el("div",{class:"active-session-banner", style:"background:var(--primary-tint);border-color:var(--primary);color:var(--primary-dark);justify-content:space-between;"},
+      el("span",{style:"display:flex;align-items:center;gap:10px;"},
+        el("span",{class:"dot-pulse", style:"background:var(--primary);"}),
+        `Formulir yang Anda isi akan tertaut ke tugas dari ${ASSIGNED_BY}`
+      ),
+      el("button",{type:"button", class:"inline-btn", style:"margin-top:0;color:var(--primary-dark);", onclick:()=>{ clearAssignedByRef(); route(); }}, "Hapus Tautan")
+    ));
+  }
+  const savedRef = loadActiveSessionRef();
+  if(savedRef || rapidSession){
+    wrap.appendChild(el("a",{href:"#/survey/rapid", class:"active-session-banner"},
+      el("span",{class:"dot-pulse"}),
+      el("span",{}, rapidSession ? `Sesi Rapid Assessment "${rapidSession.nama_program}" masih berjalan — lanjutkan →` : "Anda punya sesi Rapid Assessment yang belum diakhiri — lanjutkan →")
+    ));
+  }
+  wrap.appendChild(renderAssessmentChoices());
   wrap.appendChild(el("div",{style:"margin-top:28px;"},
       el("a",{href:"#/admin", class:"btn btn-ghost"}, "Login Admin →")
   ));
+  app.appendChild(wrap);
+}
+function renderTugasLanding(app, email){
+  const info = getRoleInfo(email);
+  if(!info){
+    app.appendChild(el("div",{class:"landing"},
+      el("div",{class:"eyebrow", style:"color:var(--danger);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;"}, "Link Tidak Valid"),
+      el("h1",{style:"font-size:24px;"}, "Link tugas ini tidak dikenali"),
+      el("p",{class:"lede"}, "Pastikan link yang dibagikan sudah benar, atau hubungi pemberi tugas Anda."),
+      el("a",{href:"#/", class:"btn btn-ghost", style:"margin-top:20px;"}, "← Ke Beranda")
+    ));
+    return;
+  }
+  ASSIGNED_BY = email;
+  saveAssignedByRef(email);
+
+  const wrap = el("div",{class:"landing"},
+    el("div",{class:"eyebrow", style:"color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px;"}, "Had Kifayah · Rumah Zakat"),
+    el("div",{style:"color:var(--ink-faint);font-size:12px;margin-bottom:14px;"}, "Mengacu kepada Puskas Baznas"),
+    el("h1",{}, "Aplikasi Pooling Data Had Kifayah"),
+    el("p",{class:"lede"}, "Platform assessment kelayakan calon penerima manfaat dana zakat"),
+    el("div",{class:"active-session-banner", style:"background:var(--primary-tint);border-color:var(--primary);color:var(--primary-dark);"},
+      el("span",{class:"dot-pulse", style:"background:var(--primary);"}),
+      el("span",{}, `Anda mengisi formulir ini atas penugasan dari ${info.nama ? info.nama+" — " : ""}${email}. Silakan pilih jenis assessment di bawah.`)
+    ),
+  );
+  wrap.appendChild(renderAssessmentChoices());
   app.appendChild(wrap);
 }
 
@@ -1386,6 +1467,7 @@ async function submitAssessment(body){
     ttd_pengaju: sigPengajuFull.toDataURL(),
     jenis_form: "full_assessment",
     status_review: "pending",
+    assigned_by: ASSIGNED_BY || null,
     submittedAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -1639,6 +1721,7 @@ function renderSessionSetup(shell){
       const sessionPayload = {
         ...temp,
         petugas_signature: sigSession.toDataURL(),
+        assigned_by: ASSIGNED_BY || null,
         createdAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
       };
       try{
@@ -2282,6 +2365,7 @@ async function submitDirect(shell){
     program_petugas: rapidSession.nama_petugas,
     program_telp_petugas: rapidSession.telp_petugas,
     program_kategori: rapidSession.kategori_program,
+    assigned_by: rapidSession.assigned_by || null,
     ttd_petugas: rapidSession.petugas_signature,
     ttd_pengaju: sigPengaju.toDataURL(),
     diisi_oleh: "surveyor",
@@ -2634,6 +2718,7 @@ async function submitSelfFill(shell, sessionId, session){
     program_petugas: session.nama_petugas,
     program_telp_petugas: session.telp_petugas,
     program_kategori: session.kategori_program,
+    assigned_by: session.assigned_by || null,
     ttd_pengaju: sigSelf.toDataURL(),
     diisi_oleh: "peserta_sendiri",
     jenis_form: "rapid_assessment",
@@ -2961,6 +3046,24 @@ async function toggleSettingsPanel(){
     const profileDoc = await db.collection("admin_profiles").doc(auth.currentUser.uid).get();
     const existingSig = profileDoc.exists ? (profileDoc.data().signature || null) : null;
     box.innerHTML = "";
+
+    const myLink = location.origin + location.pathname + "#/tugas/" + encodeURIComponent(auth.currentUser.email);
+    box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
+      el("div",{class:"step-head"},
+        el("div",{class:"eyebrow"}, "Pengaturan"),
+        el("h2",{style:"font-size:18px;"}, "Link Tugas Saya"),
+        el("div",{class:"desc"}, "Bagikan link ini kepada Surveyor yang Anda tugaskan. Formulir apa pun (Full/Rapid Assessment) yang mereka isi lewat link ini akan otomatis tercatat untuk Anda — langsung terlihat di dashboard Anda, atasan Anda, dan Kepala Divisi, tanpa perlu direview dulu. Departemen lain tidak akan melihatnya.")
+      ),
+      el("div",{class:"link-box"},
+        el("input",{type:"text", readonly:"readonly", value: myLink, id:"tugas-link-input", onclick:(e)=>e.target.select()}),
+        el("button",{class:"btn btn-accent", type:"button", onclick:()=>{
+          (navigator.clipboard ? navigator.clipboard.writeText(myLink) : Promise.reject()).then(()=>toast("Link disalin.")).catch(()=>{
+            const inp = $("#tugas-link-input"); inp.select(); document.execCommand("copy"); toast("Link disalin.");
+          });
+        }}, "Salin Link")
+      )
+    ));
+
     box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
       el("div",{class:"step-head"},
         el("div",{class:"eyebrow"}, "Pengaturan"),
