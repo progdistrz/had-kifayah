@@ -505,6 +505,12 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
             allow create: if request.auth != null;
             allow read, update, delete: if false; // hanya ekstensi Trigger Email yang mengelola
           }
+          match /admin_profiles/{uid} {
+            // Tanda tangan admin (Pemberi Tugas) — tiap admin hanya boleh baca/tulis profilnya
+            // sendiri (uid dokumen harus cocok dengan uid akun yang sedang login), dan wajib
+            // login email asli (bukan anonymous).
+            allow read, write: if request.auth != null && request.auth.uid == uid && request.auth.token.email != null;
+          }
         }
       }
 
