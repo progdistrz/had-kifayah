@@ -29,9 +29,9 @@
   --ink-faint: #8B958F;
   --line: #E3DDCB;
   --line-strong: #C9C0A6;
-  --primary: #145C46;
-  --primary-dark: #0C3F30;
-  --primary-tint: #E4EEE8;
+  --primary: #EF6F38;
+  --primary-dark: #B3532A;
+  --primary-tint: #FDEAE0;
   --accent: #C7962C;
   --accent-tint: #F7EDD6;
   --danger: #B3261E;
@@ -91,10 +91,7 @@ a{ color: var(--primary); }
 .topbar .brand{ display:flex; align-items:center; gap:10px; }
 .topbar .brand .mark{
   width:34px; height:34px; border-radius:8px;
-  background: var(--accent);
-  display:flex; align-items:center; justify-content:center;
-  font-family: var(--font-display); font-weight:700; color: var(--primary-dark);
-  font-size:16px;
+  background:#fff; padding:4px; object-fit:contain; display:block;
 }
 .topbar .brand .name{ font-family: var(--font-display); font-weight:600; font-size:17px; letter-spacing:.2px; }
 .topbar .brand .sub{ font-size:11px; color: rgba(255,255,255,.65); letter-spacing:.4px; text-transform:uppercase; }
@@ -301,8 +298,8 @@ fieldset{ border:none; margin:0; padding:0; }
 .auth-wrap{ max-width: 400px; margin: 70px auto; padding: 0 24px; }
 .auth-card{ background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-l); padding:32px; box-shadow: var(--shadow-card); }
 .auth-card .mark{
-  width:44px; height:44px; border-radius:10px; background: var(--primary); color:#fff; display:flex; align-items:center;
-  justify-content:center; font-family: var(--font-display); font-weight:700; margin-bottom:16px;
+  width:44px; height:44px; border-radius:10px; background: var(--primary-tint); padding:7px;
+  object-fit:contain; display:block; margin-bottom:16px;
 }
 .auth-card h2{ font-size:21px; margin-bottom:6px; }
 .auth-card .sub{ color: var(--ink-muted); font-size:13.5px; margin-bottom:24px; }
@@ -916,7 +913,7 @@ function topbar(isAdmin){
   );
   return el("div",{class:"topbar"},
     el("div",{class:"brand"},
-      el("div",{class:"mark"}, "HK"),
+      el("img",{class:"mark", src: LOGO_RZ_BASE64, alt:"Rumah Zakat"}),
       el("div",{},
         el("div",{class:"name"}, "Had Kifayah"),
         el("div",{class:"sub"}, "Rumah Zakat"),
@@ -2011,7 +2008,7 @@ function renderDirectForm(shell){
   rest.appendChild(renderAsnafBadgesBlock());
   rest.appendChild(rapidRadioGroup("kelayakan","Kelayakan",["Layak Dibantu","Perlu Perhatian Khusus","Tidak Layak Dibantu"], true));
   rest.appendChild(rapidTextareaField("catatan_petugas","Catatan Petugas"));
-  rest.appendChild(rapidTextField("kota_tanggal","Kota, Tanggal / Bulan / Tahun", {}));
+  rest.appendChild(el("div",{class:"hint"}, "Kota, Tanggal / Bulan / Tahun akan terisi otomatis (dari Lokasi Penyaluran & tanggal pengiriman) — tidak perlu diisi manual."));
 
   rest.appendChild(sectionHeading(null, "Tanda Tangan"));
   const sigGrid = el("div",{class:"row2"});
@@ -2460,7 +2457,7 @@ function renderAdminPage(app){
       ", cari bagian ", el("code",{},"firebaseConfig"), ", lalu isi dengan konfigurasi project Firebase Anda agar login admin dan penyimpanan data berfungsi."
     ));
     shell.appendChild(el("div",{class:"auth-wrap"}, el("div",{class:"auth-card"},
-      el("div",{class:"mark"},"HK"),
+      el("img",{class:"mark", src: LOGO_RZ_BASE64, alt:"Rumah Zakat"}),
       el("h2",{},"Login Admin"),
       el("div",{class:"sub"},"Menunggu konfigurasi Firebase.")
     )));
@@ -2490,7 +2487,7 @@ function renderLoginForm(shell){
     shell.innerHTML = "";
     shell.appendChild(el("div",{class:"auth-wrap"},
       el("div",{class:"auth-card"},
-        el("div",{class:"mark"}, "HK"),
+        el("img",{class:"mark", src: LOGO_RZ_BASE64, alt:"Rumah Zakat"}),
         el("h2",{}, "Login Admin"),
         el("div",{class:"sub"}, "Masuk untuk meninjau data assessment yang masuk dari surveyor."),
         errorMsg ? el("div",{class:"error-box"}, errorMsg) : null,
@@ -2592,6 +2589,17 @@ function monthKeyOf(s){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
 }
 const MONTH_NAMES_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+/* "Kota, Tanggal / Bulan / Tahun" (poin E Rapid Assessment) — otomatis dari Lokasi Penyaluran
+   (sesi/program) + tanggal assessment ini disubmit, tidak lagi diketik manual oleh surveyor. */
+function formatTanggalIndo(date){
+  if(!date) return "-";
+  return `${date.getDate()} ${MONTH_NAMES_ID[date.getMonth()]} ${date.getFullYear()}`;
+}
+function kotaTanggalOtomatis(sub){
+  const lokasi = sub.program_lokasi || "-";
+  const tgl = formatTanggalIndo(getSubDate(sub));
+  return `${lokasi}, ${tgl}`;
+}
 function monthLabel(key){
   const [y,m] = key.split("-");
   return `${MONTH_NAMES_ID[parseInt(m,10)-1]} ${y}`;
@@ -2977,9 +2985,9 @@ function renderRapidDetail(bodyEl, sub){
     ["Kategori Asnaf", (sub.kategori_asnaf||[]).join(", ")],
     ["Kelayakan (Surveyor)", sub.kelayakan],
     ["Catatan Petugas", sub.catatan_petugas],
-    ["Petugas Pelaksana", sub.nama_petugas_ttd], ["No. Telepon Petugas", sub.phone_petugas_ttd],
-    ["No. Telepon Pengaju", sub.phone_pengaju_ttd],
-    ["Kota, Tanggal", sub.kota_tanggal],
+    ["Petugas Pelaksana", sub.program_petugas], ["No. Telepon Petugas", sub.program_telp_petugas],
+    ["No. Telepon Pengaju", sub.telp],
+    ["Kota, Tanggal", kotaTanggalOtomatis(sub)],
   ]));
   if(sub.ttd_petugas || sub.ttd_pengaju){
     const sigGrid = el("div",{class:"dgrid"});
@@ -3129,64 +3137,95 @@ async function generateBulkPDFZip(subs){
 
 /* ---------------- PDF Full Assessment (ringkasan per-bagian) ---------------- */
 function drawFullAssessmentPDF(doc, sub){
+  const pageW = 210, marginX = 14, contentW = pageW - marginX*2, halfW = contentW/2 + 5, pageBottom = 283;
   let y = 18;
   pdfAddLogo(doc);
 
   doc.setFont("helvetica","bold"); doc.setFontSize(14);
   doc.setTextColor(...PDF_ORANGE);
-  doc.text("Had Kifayah — Rumah Zakat", 14, y); y += 5;
+  doc.text("Had Kifayah — Rumah Zakat", marginX, y); y += 5;
   doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
   doc.setTextColor(130,130,130);
-  doc.text("Mengacu kepada Puskas Baznas", 14, y); y += 7;
+  doc.text("Mengacu kepada Puskas Baznas", marginX, y); y += 6.5;
   doc.setTextColor(15,15,15);
-  doc.setFont("helvetica","normal"); doc.setFontSize(11);
-  doc.text("Full Assessment — " + (sub.nama_pengaju || "-"), 14, y); y += 10;
+  doc.setFont("helvetica","bold"); doc.setFontSize(12);
+  doc.text("FULL ASSESSMENT — " + (sub.nama_pengaju || "-"), marginX, y); y += 8;
 
-  const addSection = (title, pairs) => {
-    if(y > 265){ doc.addPage(); pdfAddLogo(doc); y = 18; }
-    doc.setFont("helvetica","bold"); doc.setFontSize(11);
-    doc.setTextColor(...PDF_ORANGE);
-    doc.text(title, 14, y); y += 6;
-    doc.setTextColor(15,15,15);
-    doc.setFont("helvetica","normal"); doc.setFontSize(10);
-    pairs.forEach(([k,v])=>{
-      if(y > 275){ doc.addPage(); pdfAddLogo(doc); y = 18; }
-      const text = `${k}: ${v==null || v==="" ? "-" : v}`;
-      const lines = doc.splitTextToSize(text, 180);
-      doc.text(lines, 14, y);
-      y += 5 * lines.length;
-    });
-    y += 4;
-  };
+  const ensureSpace = (yPos, needed) => { if(yPos + needed > pageBottom){ doc.addPage(); pdfAddLogo(doc); return 32; } return yPos; };
+  const section = (code, title) => { y = ensureSpace(y, 20); y = pdfSectionHeader(doc, marginX, y, contentW, code, title); };
+  const fields = (list) => { y = pdfRenderFields(doc, marginX, y, contentW, list, sub, ensureSpace); };
 
-  addSection("Identitas Pengaju", [
-    ["NIK", sub.nik], ["Nama Panggilan", sub.nama_panggilan], ["Jenis Kelamin", sub.jenis_kelamin],
-    ["Usia", sub.usia], ["Status Pernikahan", sub.status_nikah], ["Telepon", sub.telp],
-    ["Alamat", [sub.alamat_jalan, sub.alamat_kel, sub.alamat_kec, sub.alamat_kota, sub.alamat_prov].filter(Boolean).join(", ")],
-  ]);
-  addSection("Ekonomi Keluarga", [
-    ["Total Penghasilan/Bulan", fmtRupiah(sub.total_penghasilan)],
-    ["Total Pengeluaran/Bulan", fmtRupiah(sub.total_pengeluaran)],
-    ["Jumlah Tanggungan", sub.jumlah_tanggungan],
-    ["Pendapatan/Kapita", fmtRupiah(sub.pendapatan_per_kapita)],
-    ["Kategori Had Kifayah", sub.kategori_had_kifayah],
-  ]);
-  addSection("Resume Surveyor", [
-    ["Asnaf", (sub.asnaf||[]).join(", ")], ["Kelayakan", sub.kelayakan],
-    ["Alasan", sub.alasan], ["Catatan Surveyor", sub.catatan_surveyor],
-    ["Nama Surveyor", sub.nama_surveyor], ["Status Admin", badgeLabelText(statusOf(sub))],
-  ]);
+  // 1. DATA DITERIMA & PELAKSANAAN SURVEY
+  section("1", "DATA DITERIMA & PELAKSANAAN SURVEY");
+  fields(STEPS[0].fields);
+  y += 3;
 
-  const addSignature = (label, dataUrl) => {
-    if(!dataUrl) return;
-    if(y > 230){ doc.addPage(); pdfAddLogo(doc); y = 18; }
-    doc.setFont("helvetica","bold"); doc.setFontSize(10);
-    doc.text(label, 14, y); y += 4;
-    try{ doc.addImage(dataUrl, "PNG", 14, y, 60, 26); } catch(e){ /* lewati jika format gambar tak terbaca */ }
-    y += 30;
-  };
-  addSignature("Tanda Tangan Penerima Manfaat:", sub.ttd_pengaju);
-  addSignature("Tanda Tangan Petugas:", sub.ttd_petugas);
+  // 2. IDENTITAS PENGAJU
+  section("2", "IDENTITAS PENGAJU");
+  fields(STEPS[1].fields);
+  y += 3;
+
+  // 3. PENGHASILAN KELUARGA
+  section("3", "PENGHASILAN KELUARGA");
+  y = ensureSpace(y, 10);
+  y = pdfFieldFull(doc, marginX, y, contentW, "Jumlah Tanggungan Keluarga (Orang)", sub.jumlah_tanggungan) + 2;
+  y = ensureSpace(y, 20);
+  y = pdfTable(doc, marginX, y, [10,42,38,42,50],
+    ["No","Nama","Hubungan","Pekerjaan","Penghasilan/Bulan"],
+    (sub.table_penghasilan||[]).map((r,i)=>[i+1, r.nama, r.hubungan, r.pekerjaan, fmtRupiah(r.jumlah)]),
+    pageBottom);
+  y += 2;
+
+  // 4. PENGELUARAN & HUTANG PIUTANG
+  section("4", "PENGELUARAN & HUTANG PIUTANG");
+  y = pdfLabel(doc, marginX, y, "Rincian Pengeluaran Rumah Tangga per Bulan:");
+  y = pdfTable(doc, marginX, y, [10,90,82],
+    ["No","Jenis Pengeluaran","Rata-rata/Bulan"],
+    (sub.table_pengeluaran||[]).map((r,i)=>[i+1, r.jenis, fmtRupiah(r.jumlah)]),
+    pageBottom);
+  y += 2;
+  y = ensureSpace(y, 20);
+  y = pdfLabel(doc, marginX, y, "Rincian Hutang — Piutang:");
+  y = pdfTable(doc, marginX, y, [8,32,32,24,24,24,24,14],
+    ["No","Pemberi","Keperluan","Jth Tempo","Status","Total","Dibayar","Sisa"],
+    (sub.table_hutang||[]).map((r,i)=>[i+1, r.pemberi, r.keperluan, r.jatuh_tempo, r.status, fmtRupiah(r.total), fmtRupiah(r.dibayar), fmtRupiah((parseFloat(r.total)||0)-(parseFloat(r.dibayar)||0))]),
+    pageBottom);
+  y += 2;
+  y = ensureSpace(y, 26);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Total Penghasilan / Bulan", fmtRupiah(sub.total_penghasilan), "Total Pengeluaran / Bulan", fmtRupiah(sub.total_pengeluaran));
+  y = pdfFieldPair(doc, marginX, y, halfW, "Pendapatan per Kapita / Bulan", fmtRupiah(sub.pendapatan_per_kapita), "Kategori Had Kifayah", sub.kategori_had_kifayah);
+  y += 3;
+
+  // 5. KONDISI KEPALA KELUARGA
+  section("5", "KONDISI KEPALA KELUARGA");
+  fields(STEPS[4].fields);
+  y += 3;
+
+  // 6. POLA KONSUMSI
+  section("6", "POLA KONSUMSI");
+  fields(STEPS[5].fields);
+  y += 3;
+
+  // 7. KONDISI RUMAH TINGGAL
+  section("7", "KONDISI RUMAH TINGGAL");
+  fields(STEPS[6].fields);
+  y += 3;
+
+  // 8. KEPEMILIKAN BARANG & DATA KELUARGA
+  section("8", "KEPEMILIKAN BARANG & DATA KELUARGA");
+  fields(STEPS[7].fields);
+  y += 3;
+
+  // 9. ASPEK PERILAKU & IBADAH
+  section("9", "ASPEK PERILAKU & IBADAH");
+  fields(STEPS[8].fields);
+  y += 3;
+
+  // 10. RESUME & REKOMENDASI SURVEYOR
+  section("10", "RESUME & REKOMENDASI SURVEYOR");
+  fields(STEPS[9].fields);
+  y = ensureSpace(y, 10);
+  y = pdfFieldFull(doc, marginX, y, contentW, "Status di Dashboard Admin", badgeLabelText(statusOf(sub)));
 }
 
 /* ---------------- PDF Rapid Assessment — mengikuti tata letak form kertas asli ---------------- */
@@ -3248,6 +3287,69 @@ function pdfSectionHeader(doc, x, y, width, code, title){
   doc.setTextColor(15,15,15);
   return y + 6.5 + 6;
 }
+/* Render field generik dari skema STEPS (dipakai PDF Full Assessment) — setiap field otomatis
+   dirender sesuai tipenya (radio/checkbox jadi kotak centang, teks/tanggal jadi baris label-nilai),
+   supaya SELURUH pertanyaan pada formulir pasti ikut tercetak tanpa perlu ditulis ulang manual. */
+function pdfRenderFields(doc, x, y, maxWidth, fields, data, ensureSpace){
+  fields.forEach(f=>{
+    if(f.showIf){
+      const v = data[f.showIf];
+      const show = f.showIfVal ? v === f.showIfVal : !!v;
+      if(!show) return;
+    }
+    if(f.type === "radio" || f.type === "checkbox"){
+      y = ensureSpace(y, 20);
+      y = pdfLabel(doc, x, y, f.label + ":");
+      const checkFn = f.type === "radio" ? (opt)=> data[f.id]===opt : (opt)=> (data[f.id]||[]).includes(opt);
+      y = pdfCheckboxGroup(doc, x, y, maxWidth, f.options, checkFn) + 3;
+    } else if(f.type === "checkbox-single"){
+      y = ensureSpace(y, 9);
+      y = pdfFieldFull(doc, x, y, maxWidth, f.label, data[f.id] ? "Ya" : "Tidak") + 1;
+    } else {
+      y = ensureSpace(y, 11);
+      y = pdfFieldFull(doc, x, y, maxWidth, f.label, data[f.id]) + 1;
+    }
+  });
+  return y;
+}
+/* Tabel sederhana (dipakai untuk tabel Penghasilan / Pengeluaran / Hutang di PDF Full Assessment). */
+function pdfTable(doc, x, y, colWidths, headers, rows, pageBottom){
+  const totalW = colWidths.reduce((a,b)=>a+b,0);
+  const rowH = 6.2;
+  const drawHeader = (yy) => {
+    doc.setFillColor(...PDF_ORANGE);
+    doc.rect(x, yy, totalW, rowH, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(7.6);
+    doc.setTextColor(255,255,255);
+    let cx = x;
+    headers.forEach((h,i)=>{ doc.text(h, cx+1.5, yy+4.3); cx += colWidths[i]; });
+    doc.setTextColor(15,15,15);
+    return yy + rowH;
+  };
+  y = drawHeader(y);
+  if(!rows.length){
+    doc.setFont("helvetica","italic"); doc.setFontSize(8);
+    doc.setTextColor(140,140,140);
+    doc.text("Tidak ada data.", x+2, y+4.3);
+    doc.setTextColor(15,15,15);
+    return y + rowH + 3;
+  }
+  doc.setFont("helvetica","normal"); doc.setFontSize(7.6);
+  rows.forEach(row=>{
+    if(y + rowH > pageBottom){ doc.addPage(); pdfAddLogo(doc); y = 32; y = drawHeader(y); doc.setFont("helvetica","normal"); doc.setFontSize(7.6); }
+    doc.setDrawColor(225,225,225);
+    doc.rect(x, y, totalW, rowH);
+    let cx = x;
+    row.forEach((cell,i)=>{
+      const txt = String(cell==null||cell===""?"-":cell);
+      const lines = doc.splitTextToSize(txt, colWidths[i]-3);
+      doc.text(lines[0]||"-", cx+1.5, y+4.3);
+      cx += colWidths[i];
+    });
+    y += rowH;
+  });
+  return y + 4;
+}
 function drawRapidAssessmentPDF(doc, sub){
   const pageW = 210, marginX = 14, contentW = pageW - marginX*2, halfW = contentW/2 + 5;
   let y = 16;
@@ -3261,7 +3363,7 @@ function drawRapidAssessmentPDF(doc, sub){
   doc.text("Had Kifayah · Rumah Zakat — Mengacu kepada Puskas Baznas", pageW/2, y, {align:"center"}); y += 9;
   doc.setTextColor(15,15,15);
 
-  const ensureSpace = (needed) => { if(y + needed > 285){ doc.addPage(); pdfAddLogo(doc); y = 16; } };
+  const ensureSpace = (needed) => { if(y + needed > 283){ doc.addPage(); pdfAddLogo(doc); y = 32; } };
 
   // A. DATA PROGRAM
   ensureSpace(34);
@@ -3318,7 +3420,7 @@ function drawRapidAssessmentPDF(doc, sub){
   y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Fakir","Miskin","Gharim","Ibnu Sabil","Muallaf","Fisabilillah"], (label)=> asnaf.includes(label)) + 3;
   y = pdfLabel(doc, marginX, y, "Kelayakan:");
   y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Layak Dibantu","Perlu Perhatian Khusus","Tidak Layak Dibantu"], (label)=> sub.kelayakan === label) + 3;
-  y = pdfFieldFull(doc, marginX, y, contentW, "Kota, Tanggal / Bulan / Tahun", sub.kota_tanggal);
+  y = pdfFieldFull(doc, marginX, y, contentW, "Kota, Tanggal / Bulan / Tahun", kotaTanggalOtomatis(sub));
   y = pdfFieldFull(doc, marginX, y, contentW, "Status di Dashboard Admin", badgeLabelText(statusOf(sub)));
   y += 6;
 
@@ -3341,7 +3443,7 @@ function drawRapidAssessmentPDF(doc, sub){
   doc.text(`( ${sub.program_petugas || "-"} )`, leftX, y);
   doc.text(`( ${sub.nama_pengaju || sub.nama || "-"} )`, rightX, y);
   y += 4;
-  doc.text(sub.phone_petugas_ttd ? `(${sub.phone_petugas_ttd})` : "", leftX, y);
+  doc.text(sub.program_telp_petugas ? `(${sub.program_telp_petugas})` : "", leftX, y);
   doc.text(sub.telp ? `(${sub.telp})` : "", rightX, y);
 }
 
