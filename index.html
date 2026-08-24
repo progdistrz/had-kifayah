@@ -723,10 +723,6 @@ const STEPS = [
       { id:"alamat_rt", label:"RT", type:"text", short:true },
       { id:"alamat_rw", label:"RW", type:"text", short:true },
       { id:"alamat_no", label:"No. Rumah", type:"text", short:true },
-      { id:"alamat_kel", label:"Kelurahan", type:"text" },
-      { id:"alamat_kec", label:"Kecamatan", type:"text" },
-      { id:"alamat_kota", label:"Kota / Kabupaten", type:"text" },
-      { id:"alamat_prov", label:"Provinsi", type:"text" },
       RADIO("jenis_kelamin","Jenis Kelamin",["Laki-Laki","Perempuan"], {required:true}),
       { id:"usia", label:"Usia (Tahun)", type:"number", required:true },
       { id:"telp", label:"Nomor Telepon", type:"tel" },
@@ -935,6 +931,14 @@ function renderWizard(body){
   }
   const step = STEPS[currentStepIndex];
 
+  // Panduan Asnaf disarankan otomatis begitu surveyor pertama kali sampai ke langkah Resume
+  // (berdasarkan jawaban sebelumnya) — hanya sekali, supaya tidak menimpa penyesuaian manual
+  // surveyor jika mereka kembali ke langkah ini.
+  if(step.key === "resume" && !formState._asnaf_auto_applied){
+    formState.asnaf = computeAsnafFull();
+    formState._asnaf_auto_applied = true;
+  }
+
   const railEl = el("div",{class:"rail"},
     el("div",{class:"rail-title"}, "Tahapan Formulir"),
     ...STEPS.map((s,i)=> el("button",{
@@ -963,7 +967,19 @@ function renderWizard(body){
   panel.appendChild(form);
 
   // Regular fields
-  (step.fields||[]).forEach(f => form.appendChild(renderField(f)));
+  (step.fields||[]).forEach(f => {
+    form.appendChild(renderField(f));
+    if(step.key === "identitas" && f.id === "alamat_no") form.appendChild(fullAddressCascade());
+    if(step.key === "resume" && f.id === "asnaf"){
+      form.appendChild(el("div",{class:"hint", style:"margin-top:-10px;margin-bottom:16px;"},
+        "Disarankan otomatis berdasarkan jawaban sebelumnya — silakan sesuaikan bila perlu. ",
+        el("button",{type:"button", class:"inline-btn", style:"margin-top:0;", onclick:()=>{
+          formState.asnaf = computeAsnafFull();
+          renderWizard(body);
+        }}, "↻ Sarankan ulang")
+      ));
+    }
+  });
 
   // Dynamic tables
   if(step.table) form.appendChild(renderDynTable(step.table));
@@ -1172,9 +1188,9 @@ function renderDynTable(kind){
         el("td",{}, el("input",{type:"text", value:row.keperluan, oninput:(e)=>{row.keperluan=e.target.value;}})),
         el("td",{}, el("input",{type:"date", value:row.jatuh_tempo, oninput:(e)=>{row.jatuh_tempo=e.target.value;}})),
         el("td",{}, el("input",{type:"text", value:row.status, oninput:(e)=>{row.status=e.target.value;}})),
-        el("td",{}, moneyInput(row.total, (digits)=>{ row.total=digits; refreshGauge(); rerenderCurrentStep(); })),
-        el("td",{}, moneyInput(row.dibayar, (digits)=>{ row.dibayar=digits; rerenderCurrentStep(); })),
-        el("td",{class:"mono"}, fmtRupiah(sisa)),
+        el("td",{}, moneyInput(row.total, (digits)=>{ row.total=digits; refreshHutangRow(row.id); })),
+        el("td",{}, moneyInput(row.dibayar, (digits)=>{ row.dibayar=digits; refreshHutangRow(row.id); })),
+        el("td",{class:"mono", id:"sisa-hutang-"+row.id}, fmtRupiah(sisa)),
         el("td",{}, el("button",{class:"rm", onclick:()=>{
           dynTables.hutang = dynTables.hutang.filter(r=>r.id!==row.id);
           rerenderCurrentStep();
@@ -1183,8 +1199,8 @@ function renderDynTable(kind){
     });
     const totals = calcTableTotal("hutang");
     tfoot = el("tfoot",{}, el("tr",{},
-      el("td",{colspan:4},"TOTAL"), el("td",{}, ""), el("td",{}, fmtRupiah(totals.total)),
-      el("td",{}, fmtRupiah(totals.dibayar)), el("td",{}, fmtRupiah(totals.total-totals.dibayar)), el("td",{})
+      el("td",{colspan:4},"TOTAL"), el("td",{}, ""), el("td",{id:"hutang-foot-total"}, fmtRupiah(totals.total)),
+      el("td",{id:"hutang-foot-dibayar"}, fmtRupiah(totals.dibayar)), el("td",{id:"hutang-foot-sisa"}, fmtRupiah(totals.total-totals.dibayar)), el("td",{})
     ));
   }
 
@@ -1210,6 +1226,19 @@ function refreshDynTotal(kind){
     if(cell) cell.textContent = fmtRupiah(calcTableTotal("pengeluaran"));
   }
 }
+/* Update baris & footer tabel Hutang langsung lewat DOM (tanpa render ulang seluruh langkah)
+   supaya mengetik nominal di HP tidak kehilangan fokus/hanya menerima 1 digit per ketuk. */
+function refreshHutangRow(rowId){
+  const row = dynTables.hutang.find(r=>r.id===rowId);
+  if(!row) return;
+  const sisaCell = $("#sisa-hutang-"+rowId);
+  if(sisaCell) sisaCell.textContent = fmtRupiah((parseFloat(row.total)||0) - (parseFloat(row.dibayar)||0));
+  const totals = calcTableTotal("hutang");
+  const totalCell = $("#hutang-foot-total"), dibayarCell = $("#hutang-foot-dibayar"), sisaFootCell = $("#hutang-foot-sisa");
+  if(totalCell) totalCell.textContent = fmtRupiah(totals.total);
+  if(dibayarCell) dibayarCell.textContent = fmtRupiah(totals.dibayar);
+  if(sisaFootCell) sisaFootCell.textContent = fmtRupiah(totals.total-totals.dibayar);
+}
 function refreshGauge(){
   const g = $("#kifayah-figure");
   if(!g) return;
@@ -1223,6 +1252,18 @@ function getPerCapita(){
   const totalPenghasilan = calcTableTotal("penghasilan");
   const tanggungan = parseFloat(formState.jumlah_tanggungan) || 1;
   return totalPenghasilan / Math.max(tanggungan,1);
+}
+/* Saran otomatis Panduan Asnaf (Full Assessment) berdasarkan jawaban yang sudah diisi —
+   surveyor tetap bebas menyesuaikan (centang/hapus) di formulir sesudah ini muncul. */
+function computeAsnafFull(){
+  const cats = [];
+  if(formState.pekerjaan_kepala === "Menganggur") cats.push("Fakir");
+  if(getPerCapita() < 979989) cats.push("Miskin");
+  if(formState.is_muallaf) cats.push("Muallaf");
+  const totalHutang = dynTables.hutang.reduce((s,r)=>s+(parseFloat(r.total)||0),0);
+  const totalPenghasilan = calcTableTotal("penghasilan");
+  if(totalHutang > 0 && totalHutang > totalPenghasilan) cats.push("Gharim");
+  return cats;
 }
 
 function renderKifayahGauge(){
@@ -1727,7 +1768,7 @@ async function fetchWilayah(path){
   return res.json();
 }
 function wilayahSelect(id, placeholder){
-  const sel = el("select", { id:"rf-"+id, disabled: "disabled" });
+  const sel = el("select", { id, disabled: "disabled" });
   sel.appendChild(el("option",{value:""}, placeholder));
   return sel;
 }
@@ -1747,10 +1788,10 @@ function rapidAddressCascade(){
     rapidTextField("rw","RW"),
   ));
 
-  const selProvinsi = wilayahSelect("provinsi_id", "Memuat provinsi…");
-  const selKota = wilayahSelect("kota_kab_id", "Pilih Provinsi dahulu");
-  const selKec = wilayahSelect("kecamatan_id", "Pilih Kota/Kab dahulu");
-  const selDesa = wilayahSelect("desa_kelurahan_id", "Pilih Kecamatan dahulu");
+  const selProvinsi = wilayahSelect("rf-provinsi_id", "Memuat provinsi…");
+  const selKota = wilayahSelect("rf-kota_kab_id", "Pilih Provinsi dahulu");
+  const selKec = wilayahSelect("rf-kecamatan_id", "Pilih Kota/Kab dahulu");
+  const selDesa = wilayahSelect("rf-desa_kelurahan_id", "Pilih Kecamatan dahulu");
   selProvinsi.disabled = true;
 
   const wrapSel = (label, sel) => el("div",{class:"field"}, el("label",{class:"q", style:"font-size:12.5px;"}, label), sel);
@@ -1816,6 +1857,80 @@ function rapidAddressCascade(){
   });
 
   wrap.appendChild(box);
+  return wrap;
+}
+
+/* ---------------- Alamat bertingkat untuk Full Assessment (Provinsi>Kota>Kec>Desa) ----------------
+   Sama seperti rapidAddressCascade, tapi menulis ke formState dengan nama field yang sudah
+   dipakai di skema Full Assessment (alamat_kota, alamat_kec, alamat_kel, alamat_prov) supaya
+   filter lokasi admin & PDF yang sudah ada tidak perlu diubah. */
+function fullAddressCascade(){
+  const wrap = el("div",{class:"field"});
+  const selProvinsi = wilayahSelect("full-provinsi_id", "Memuat provinsi…");
+  const selKota = wilayahSelect("full-kota_kab_id", "Pilih Provinsi dahulu");
+  const selKec = wilayahSelect("full-kecamatan_id", "Pilih Kota/Kab dahulu");
+  const selDesa = wilayahSelect("full-desa_kelurahan_id", "Pilih Kecamatan dahulu");
+  selProvinsi.disabled = true;
+
+  const wrapSel = (label, sel) => el("div",{class:"field"}, el("label",{class:"q", style:"font-size:12.5px;"}, label), sel);
+
+  wrap.appendChild(el("div",{class:"row2"}, wrapSel("Provinsi", selProvinsi), wrapSel("Kota / Kabupaten", selKota)));
+  wrap.appendChild(el("div",{class:"row2"}, wrapSel("Kecamatan", selKec), wrapSel("Kelurahan / Desa", selDesa)));
+  const errBox = el("div",{class:"hint"}, "");
+  wrap.appendChild(errBox);
+
+  fetchWilayah("provinces.json").then(list=>{
+    resetWilayahSelect(selProvinsi, "Pilih Provinsi...", false);
+    list.forEach(p=> selProvinsi.appendChild(el("option",{value:p.id}, p.name)));
+  }).catch(()=>{
+    resetWilayahSelect(selProvinsi, "Gagal memuat (cek koneksi internet)", true);
+    errBox.textContent = "Daftar provinsi gagal dimuat — periksa koneksi internet lalu muat ulang halaman.";
+  });
+
+  selProvinsi.addEventListener("change", async ()=>{
+    const opt = selProvinsi.selectedOptions[0];
+    formState.alamat_prov = opt && opt.value ? opt.text : "";
+    resetWilayahSelect(selKota, "Memuat…", true);
+    resetWilayahSelect(selKec, "Pilih Kota/Kab dahulu", true);
+    resetWilayahSelect(selDesa, "Pilih Kecamatan dahulu", true);
+    formState.alamat_kota = ""; formState.alamat_kec = ""; formState.alamat_kel = "";
+    if(!selProvinsi.value){ resetWilayahSelect(selKota, "Pilih Provinsi dahulu", true); return; }
+    try{
+      const list = await fetchWilayah(`regencies/${selProvinsi.value}.json`);
+      resetWilayahSelect(selKota, "Pilih Kota/Kabupaten...", false);
+      list.forEach(r=> selKota.appendChild(el("option",{value:r.id}, r.name)));
+    } catch(e){ resetWilayahSelect(selKota, "Gagal memuat", true); }
+  });
+  selKota.addEventListener("change", async ()=>{
+    const opt = selKota.selectedOptions[0];
+    formState.alamat_kota = opt && opt.value ? opt.text : "";
+    resetWilayahSelect(selKec, "Memuat…", true);
+    resetWilayahSelect(selDesa, "Pilih Kecamatan dahulu", true);
+    formState.alamat_kec = ""; formState.alamat_kel = "";
+    if(!selKota.value){ resetWilayahSelect(selKec, "Pilih Kota/Kab dahulu", true); return; }
+    try{
+      const list = await fetchWilayah(`districts/${selKota.value}.json`);
+      resetWilayahSelect(selKec, "Pilih Kecamatan...", false);
+      list.forEach(d=> selKec.appendChild(el("option",{value:d.id}, d.name)));
+    } catch(e){ resetWilayahSelect(selKec, "Gagal memuat", true); }
+  });
+  selKec.addEventListener("change", async ()=>{
+    const opt = selKec.selectedOptions[0];
+    formState.alamat_kec = opt && opt.value ? opt.text : "";
+    resetWilayahSelect(selDesa, "Memuat…", true);
+    formState.alamat_kel = "";
+    if(!selKec.value){ resetWilayahSelect(selDesa, "Pilih Kecamatan dahulu", true); return; }
+    try{
+      const list = await fetchWilayah(`villages/${selKec.value}.json`);
+      resetWilayahSelect(selDesa, "Pilih Kelurahan/Desa...", false);
+      list.forEach(v=> selDesa.appendChild(el("option",{value:v.id}, v.name)));
+    } catch(e){ resetWilayahSelect(selDesa, "Gagal memuat", true); }
+  });
+  selDesa.addEventListener("change", ()=>{
+    const opt = selDesa.selectedOptions[0];
+    formState.alamat_kel = opt && opt.value ? opt.text : "";
+  });
+
   return wrap;
 }
 
@@ -2545,12 +2660,19 @@ let ALL_SUBMISSIONS = [];
 let unsubscribeSnapshot = null;
 let SELECTED_IDS = new Set();
 
+let ADMIN_SIGNATURE = null;
 function renderDashboard(shell, user){
   SELECTED_IDS = new Set();
+  ADMIN_SIGNATURE = null;
+  if(auth.currentUser){
+    db.collection("admin_profiles").doc(auth.currentUser.uid).get()
+      .then(doc=>{ ADMIN_SIGNATURE = doc.exists ? (doc.data().signature || null) : null; })
+      .catch(()=>{ ADMIN_SIGNATURE = null; });
+  }
   shell.innerHTML = "";
   shell.appendChild(el("div",{class:"dash-head"},
     el("div",{}, el("h1",{},"Dashboard Assessment"), el("div",{style:"color:var(--ink-muted);font-size:13px;margin-top:4px;"}, "Masuk sebagai " + user.email)),
-    el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan Notifikasi")
+    el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan")
   ));
   shell.appendChild(el("div",{id:"settings-panel"}));
 
@@ -2743,6 +2865,8 @@ async function toggleSettingsPanel(){
   try{
     const doc = await db.collection("app_settings").doc("notifications").get();
     const emails = doc.exists ? (doc.data().emails || "") : "";
+    const profileDoc = await db.collection("admin_profiles").doc(auth.currentUser.uid).get();
+    const existingSig = profileDoc.exists ? (profileDoc.data().signature || null) : null;
     box.innerHTML = "";
     box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
       el("div",{class:"step-head"},
@@ -2762,6 +2886,35 @@ async function toggleSettingsPanel(){
         }}, "Simpan")
       )
     ));
+
+    const sigPanel = el("div",{class:"step-panel"},
+      el("div",{class:"step-head"},
+        el("div",{class:"eyebrow"}, "Pengaturan"),
+        el("h2",{style:"font-size:18px;"}, "Tanda Tangan Saya"),
+        el("div",{class:"desc"}, "Otomatis disematkan ke PDF sebagai tanda tangan Pemberi Tugas setiap kali Anda menentukan status kelayakan (Layak Dibantu / Perlu Perhatian Khusus / Tidak Layak Dibantu) pada suatu assessment.")
+      )
+    );
+    if(existingSig){
+      sigPanel.appendChild(el("div",{class:"hint", style:"margin-bottom:6px;"}, "Tanda tangan tersimpan saat ini:"));
+      sigPanel.appendChild(el("img",{src:existingSig, style:"max-width:220px;border:1px solid var(--line);border-radius:8px;background:#fff;margin-bottom:14px;display:block;"}));
+    }
+    const sigBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, existingSig ? "Gambar Ulang Tanda Tangan" : "Buat Tanda Tangan"));
+    const pad = createSignaturePad();
+    sigBox.appendChild(pad.el);
+    sigPanel.appendChild(sigBox);
+    sigPanel.appendChild(el("button",{class:"btn btn-primary", style:"margin-top:12px;", onclick: async ()=>{
+      if(pad.isEmpty()){ toast("Mohon bubuhkan tanda tangan terlebih dahulu."); return; }
+      try{
+        const dataUrl = pad.toDataURL();
+        await db.collection("admin_profiles").doc(auth.currentUser.uid).set({
+          signature: dataUrl, email: auth.currentUser.email,
+          updated_at: firebase.firestore.FieldValue.serverTimestamp(),
+        }, {merge:true});
+        ADMIN_SIGNATURE = dataUrl;
+        toast("Tanda tangan tersimpan.");
+      } catch(err){ toast("Gagal menyimpan tanda tangan: " + friendlyFirestoreError(err)); }
+    }}, "Simpan Tanda Tangan"));
+    box.appendChild(sigPanel);
   } catch(err){
     box.innerHTML = "";
     box.appendChild(el("div",{class:"error-box"}, "Gagal memuat pengaturan: " + friendlyFirestoreError(err)));
@@ -3070,8 +3223,17 @@ function dsection(title, pairs){
   return el("div",{class:"dsection"}, el("h4",{}, title), grid);
 }
 async function updateStatus(sub, status){
+  if(!ADMIN_SIGNATURE){
+    toast("Anda belum membuat tanda tangan. Buka ⚙️ Pengaturan → Tanda Tangan Saya terlebih dahulu.");
+    return;
+  }
   try{
-    await db.collection(COLLECTION).doc(sub.id).update({ admin_status: status });
+    await db.collection(COLLECTION).doc(sub.id).update({
+      admin_status: status,
+      admin_signature: ADMIN_SIGNATURE,
+      admin_signed_by: auth.currentUser ? auth.currentUser.email : "-",
+      admin_signed_at: firebase.firestore.FieldValue.serverTimestamp(),
+    });
     toast("Status diperbarui.");
     closeDetail();
   } catch(err){
@@ -3294,32 +3456,16 @@ function drawFullAssessmentPDF(doc, sub){
   section("10", "RESUME & REKOMENDASI SURVEYOR");
   fields(STEPS[9].fields);
   y = ensureSpace(y, 10);
-  y = pdfFieldFull(doc, marginX, y, contentW, "Status di Dashboard Admin", badgeLabelText(statusOf(sub)));
+  y = pdfFieldFull(doc, marginX, y, contentW, statusLabelForPDF(sub), badgeLabelText(statusOf(sub)));
   y += 6;
 
-  // Tanda tangan (2 kolom): Surveyor & Penerima Manfaat
+  // Tanda tangan — 3 kolom jika admin sudah memberi keputusan (menyertakan Pemberi Tugas)
   y = ensureSpace(y, 52);
-  const colW = contentW/2;
-  const leftX = marginX, rightX = marginX + colW + 4;
-  doc.setDrawColor(200,200,200);
-  doc.line(marginX, y, marginX+contentW, y); y += 6;
-  doc.setFont("helvetica","bold"); doc.setFontSize(9);
-  doc.setTextColor(15,15,15);
-  doc.text("Surveyor", leftX, y);
-  doc.text("Penerima Manfaat", rightX, y);
-  y += 4;
-  const sigY = y;
-  try{ if(sub.ttd_petugas) doc.addImage(sub.ttd_petugas, "PNG", leftX, sigY, 55, 24); } catch(e){}
-  try{ if(sub.ttd_pengaju) doc.addImage(sub.ttd_pengaju, "PNG", rightX, sigY, 55, 24); } catch(e){}
-  y = sigY + 26;
-  doc.setFont("helvetica","normal"); doc.setFontSize(8.3);
-  doc.setTextColor(60,60,60);
-  doc.text(`( ${sub.nama_surveyor || "-"} )`, leftX, y);
-  doc.text(`( ${sub.nama_pengaju || "-"} )`, rightX, y);
-  y += 4;
-  doc.text(sub.phone_surveyor ? `(${sub.phone_surveyor})` : "", leftX, y);
-  doc.text(sub.telp ? `(${sub.telp})` : "", rightX, y);
-  doc.setTextColor(15,15,15);
+  y = pdfSignatureBlock(doc, marginX, y, contentW, [
+    { label:"Surveyor", name: sub.nama_surveyor, phone: sub.phone_surveyor, sigDataUrl: sub.ttd_petugas },
+    { label:"Penerima Manfaat", name: sub.nama_pengaju, phone: sub.telp, sigDataUrl: sub.ttd_pengaju },
+    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by, phone: "", sigDataUrl: sub.admin_signature },
+  ]);
 }
 
 /* ---------------- PDF Rapid Assessment — mengikuti tata letak form kertas asli ---------------- */
@@ -3444,6 +3590,35 @@ function pdfTable(doc, x, y, colWidths, headers, rows, pageBottom){
   });
   return y + 4;
 }
+/* Label akhir PDF: sebelum admin memberi keputusan masih "Status di Dashboard Admin";
+   setelah admin menentukan status (approved/attention/rejected) berganti jadi
+   "Rekomendasi Pemberi Tugas" karena sudah merupakan keputusan resmi, bukan status antrian lagi. */
+function statusLabelForPDF(sub){
+  return sub.admin_status ? "Rekomendasi Pemberi Tugas" : "Status di Dashboard Admin";
+}
+/* Blok tanda tangan PDF — otomatis 2 atau 3 kolom (kolom ke-3 "Pemberi Tugas" hanya
+   diberi gambar tanda tangan jika admin sudah menentukan status assessment ini). */
+function pdfSignatureBlock(doc, x, y, width, entries){
+  const colW = width / entries.length;
+  doc.setDrawColor(200,200,200);
+  doc.line(x, y, x+width, y); y += 6;
+  doc.setFont("helvetica","bold"); doc.setFontSize(9);
+  doc.setTextColor(15,15,15);
+  entries.forEach((e,i)=> doc.text(e.label, x+i*colW, y));
+  y += 4;
+  const sigY = y;
+  entries.forEach((e,i)=>{
+    if(e.sigDataUrl){ try{ doc.addImage(e.sigDataUrl, "PNG", x+i*colW, sigY, Math.min(colW-6,55), 24); } catch(err){ /* lewati jika gambar tak terbaca */ } }
+  });
+  y = sigY + 26;
+  doc.setFont("helvetica","normal"); doc.setFontSize(8.3);
+  doc.setTextColor(60,60,60);
+  entries.forEach((e,i)=> doc.text(`( ${e.name || "-"} )`, x+i*colW, y));
+  y += 4;
+  entries.forEach((e,i)=> doc.text(e.phone ? `(${e.phone})` : "", x+i*colW, y));
+  doc.setTextColor(15,15,15);
+  return y + 4;
+}
 function drawRapidAssessmentPDF(doc, sub){
   const pageW = 210, marginX = 14, contentW = pageW - marginX*2, halfW = contentW/2 + 5;
   let y = 16;
@@ -3515,30 +3690,16 @@ function drawRapidAssessmentPDF(doc, sub){
   y = pdfLabel(doc, marginX, y, "Kelayakan:");
   y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Layak Dibantu","Perlu Perhatian Khusus","Tidak Layak Dibantu"], (label)=> sub.kelayakan === label) + 3;
   y = pdfFieldFull(doc, marginX, y, contentW, "Kota, Tanggal / Bulan / Tahun", kotaTanggalOtomatis(sub));
-  y = pdfFieldFull(doc, marginX, y, contentW, "Status di Dashboard Admin", badgeLabelText(statusOf(sub)));
+  y = pdfFieldFull(doc, marginX, y, contentW, statusLabelForPDF(sub), badgeLabelText(statusOf(sub)));
   y += 6;
 
-  // Tanda tangan (2 kolom, seperti tabel terakhir form asli)
+  // Tanda tangan — 3 kolom jika admin sudah memberi keputusan (menyertakan Pemberi Tugas)
   ensureSpace(52);
-  const colW = contentW/2;
-  const leftX = marginX, rightX = marginX + colW + 4;
-  doc.setDrawColor(200,200,200);
-  doc.line(marginX, y, marginX+contentW, y); y += 6;
-  doc.setFont("helvetica","bold"); doc.setFontSize(9);
-  doc.text("Petugas/Amil Pelaksana Assessment", leftX, y);
-  doc.text("Tanda Tangan Penerima Manfaat", rightX, y);
-  y += 4;
-  const sigY = y;
-  try{ if(sub.ttd_petugas) doc.addImage(sub.ttd_petugas, "PNG", leftX, sigY, 55, 24); } catch(e){}
-  try{ if(sub.ttd_pengaju) doc.addImage(sub.ttd_pengaju, "PNG", rightX, sigY, 55, 24); } catch(e){}
-  y = sigY + 26;
-  doc.setFont("helvetica","normal"); doc.setFontSize(8.3);
-  doc.setTextColor(60,60,60);
-  doc.text(`( ${sub.program_petugas || "-"} )`, leftX, y);
-  doc.text(`( ${sub.nama_pengaju || sub.nama || "-"} )`, rightX, y);
-  y += 4;
-  doc.text(sub.program_telp_petugas ? `(${sub.program_telp_petugas})` : "", leftX, y);
-  doc.text(sub.telp ? `(${sub.telp})` : "", rightX, y);
+  y = pdfSignatureBlock(doc, marginX, y, contentW, [
+    { label:"Petugas/Amil Pelaksana Assessment", name: sub.program_petugas, phone: sub.program_telp_petugas, sigDataUrl: sub.ttd_petugas },
+    { label:"Penerima Manfaat", name: sub.nama_pengaju || sub.nama, phone: sub.telp, sigDataUrl: sub.ttd_pengaju },
+    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by, phone: "", sigDataUrl: sub.admin_signature },
+  ]);
 }
 
 /* ================================================================
