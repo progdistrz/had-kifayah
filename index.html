@@ -3094,7 +3094,20 @@ function generateAssessmentPDF(sub){
   if(sub.jenis_form === "rapid_assessment") drawRapidAssessmentPDF(doc, sub);
   else drawFullAssessmentPDF(doc, sub);
   const kind = sub.jenis_form === "rapid_assessment" ? "rapid-assessment" : "full-assessment";
-  doc.save(`${kind}-${(sub.nama_pengaju||sub.nama||"data").replace(/\s+/g,"_")}.pdf`);
+  const filename = `${kind}-${(sub.nama_pengaju||sub.nama||"data").replace(/\s+/g,"_")}.pdf`;
+  // Tampilkan pratinjau dulu di tab baru (pakai viewer PDF bawaan browser, lengkap dengan
+  // tombol cetak/unduh sendiri) — tidak langsung memaksa unduh seperti doc.save().
+  try{
+    const blobUrl = doc.output("bloburl");
+    const win = window.open(blobUrl, "_blank");
+    if(!win){
+      // Pop-up diblokir browser — fallback ke unduh langsung supaya PDF tetap didapat.
+      toast("Pop-up pratinjau diblokir browser — PDF diunduh langsung.");
+      doc.save(filename);
+    }
+  } catch(err){
+    toast("Gagal membuka pratinjau PDF: " + err.message);
+  }
 }
 /* Aksi massal Admin: SETIAP entri jadi file PDF-nya sendiri (bukan digabung jadi satu PDF
    panjang), lalu dibundel jadi satu file .zip untuk diunduh sekali klik. Catatan: format .rar
