@@ -459,6 +459,16 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
 .bulk-bar .btn-accent{ margin-left:auto; }
 .data-table-wrap input[type=checkbox], .review-item input[type=checkbox]{ width:16px; height:16px; accent-color: var(--primary); cursor:pointer; }
 
+/* Penanda Departemen (dashboard Kepala Divisi) & Pemberi Tugas (dashboard Dept./bawahan) */
+.dept-badge{
+  display:inline-block; padding:4px 11px; border-radius:999px; font-size:11px; font-weight:800;
+  letter-spacing:.3px; background: var(--primary-tint); color: var(--primary-dark); border:1px solid #E9C6B4;
+}
+.person-badge{
+  display:inline-block; padding:4px 11px; border-radius:999px; font-size:11.5px; font-weight:700;
+  background: var(--accent-tint); color:#6B4E10; border:1px solid #E9D7A6; cursor:help;
+}
+
 /* Gerbang NIK — status ketersediaan sebelum field lain aktif */
 .nik-gate-ok{ color: var(--success); font-weight:700; }
 .nik-gate-blocked{ color: var(--danger); font-weight:700; }
@@ -613,21 +623,40 @@ const COLLECTION = "assessments";
    Security Rules (lihat komentar "FIREBASE CONFIG" di bawah) supaya
    pembatasan ini benar-benar ditegakkan di server — filter di sini
    hanya mengatur tampilan, bukan proteksi sesungguhnya. */
+/* GANTI seluruh "081200000000" di bawah dengan nomor telepon asli masing-masing
+   pejabat/bawahan sebelum dipakai — placeholder ini hanya penanda tempat. */
 const ROLE_HIERARCHY = {
-  "admin@progdist.erzet": { role:"kepala_divisi" },
-  "sosv@progdist.erzet": { role:"dept_head", dept:"Dept. Sosv", nama:"US", subordinates:["prcb@progdist.erzet","sosv.admin@progdist.erzet"] },
-  "sch@progdist.erzet": { role:"dept_head", dept:"Dept. Sch", nama:"SN", subordinates:["iis@progdist.erzet","diki@progdist.erzet"] },
-  "pem@progdist.erzet": { role:"dept_head", dept:"Dept. PEM", nama:"BK", subordinates:["mujib@progdist.erzet","rafi@progdist.erzet"] },
-  "prcb@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv" },
-  "sosv.admin@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv" },
-  "iis@progdist.erzet": { role:"subordinate", dept:"Dept. Sch" },
-  "diki@progdist.erzet": { role:"subordinate", dept:"Dept. Sch" },
-  "mujib@progdist.erzet": { role:"subordinate", dept:"Dept. PEM" },
-  "rafi@progdist.erzet": { role:"subordinate", dept:"Dept. PEM" },
+  "admin@progdist.erzet": { role:"kepala_divisi", nama:"Kepala Divisi", telp:"081200000000" },
+  "sosv@progdist.erzet": { role:"dept_head", dept:"Dept. Sosv", nama:"US", telp:"081200000000", subordinates:["prcb@progdist.erzet","sosv.admin@progdist.erzet"] },
+  "sch@progdist.erzet": { role:"dept_head", dept:"Dept. Sch", nama:"SN", telp:"081200000000", subordinates:["iis@progdist.erzet","diki@progdist.erzet"] },
+  "pem@progdist.erzet": { role:"dept_head", dept:"Dept. PEM", nama:"BK", telp:"081200000000", subordinates:["mujib@progdist.erzet","rafi@progdist.erzet"] },
+  "prcb@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv", telp:"081200000000" },
+  "sosv.admin@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv", telp:"081200000000" },
+  "iis@progdist.erzet": { role:"subordinate", dept:"Dept. Sch", telp:"081200000000" },
+  "diki@progdist.erzet": { role:"subordinate", dept:"Dept. Sch", telp:"081200000000" },
+  "mujib@progdist.erzet": { role:"subordinate", dept:"Dept. PEM", telp:"081200000000" },
+  "rafi@progdist.erzet": { role:"subordinate", dept:"Dept. PEM", telp:"081200000000" },
 };
 function getRoleInfo(email){
   if(!email) return null;
   return ROLE_HIERARCHY[email.toLowerCase()] || null;
+}
+/* Label singkat departemen dari email ("Dept. Sosv" -> "SOSV") — dipakai penanda di
+   dashboard Kepala Divisi supaya bisa membedakan asal tiap baris sekilas pandang. */
+function getDeptAbbrFromEmail(email){
+  const info = getRoleInfo(email);
+  if(!info) return null;
+  if(info.role === "kepala_divisi") return "PUSAT";
+  const m = (info.dept || "").match(/Dept\.?\s*(\S+)/i);
+  return m ? m[1].toUpperCase() : (info.dept || null);
+}
+/* Label singkat orangnya ("prcb@progdist.erzet" -> "prcb") — dipakai penanda di dashboard
+   Dept. Head/bawahan supaya bisa membedakan siapa pemberi tugas tiap baris. */
+function getPersonLabelFromEmail(email){
+  if(!email) return null;
+  const info = getRoleInfo(email);
+  if(info && info.role === "dept_head" && info.nama) return info.nama;
+  return email.split("@")[0];
 }
 /* Item "antrian terbuka" — belum ditugaskan lewat Link Tugas siapa pun, dan belum direview
    siapa pun — tetap terlihat oleh semua orang di hirarki supaya ada yang bisa mengambilnya. */
@@ -2810,6 +2839,7 @@ let SELECTED_IDS = new Set();
 
 let ADMIN_SIGNATURE = null;
 let ADMIN_NAME = null;
+let CURRENT_VIEWER_ROLE = null;
 function renderDashboard(shell, user){
   const roleInfo = getRoleInfo(user.email);
   if(!roleInfo){
@@ -2820,6 +2850,7 @@ function renderDashboard(shell, user){
     shell.appendChild(el("button",{class:"btn btn-ghost", style:"margin-top:12px;", onclick:doLogout}, "Keluar"));
     return;
   }
+  CURRENT_VIEWER_ROLE = roleInfo;
   const roleLabel = roleInfo.role === "kepala_divisi" ? "Kepala Divisi — melihat seluruh assessment"
     : roleInfo.role === "dept_head" ? `${roleInfo.dept} (${roleInfo.nama}) — melihat data Anda & ${roleInfo.subordinates.length} bawahan`
     : `${roleInfo.dept} — hanya melihat assessment yang sudah Anda tentukan statusnya`;
@@ -3044,6 +3075,25 @@ async function toggleSettingsPanel(){
     const existingNama = profileDoc.exists ? (profileDoc.data().nama || "") : "";
     box.innerHTML = "";
 
+    box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
+      el("div",{class:"step-head"},
+        el("div",{class:"eyebrow"}, "Pengaturan"),
+        el("h2",{style:"font-size:18px;"}, "Kontak Tim"),
+        el("div",{class:"desc"}, "Daftar seluruh pejabat & bawahan terdaftar beserta nomor teleponnya.")
+      ),
+      el("div",{},
+        ...Object.entries(ROLE_HIERARCHY).map(([email, info])=>
+          el("div",{class:"review-item"},
+            el("div",{},
+              el("div",{class:"review-item-name"}, info.nama || email.split("@")[0]),
+              el("div",{class:"review-item-sub"}, `${info.role === "kepala_divisi" ? "Kepala Divisi" : info.dept} · ${email}`),
+            ),
+            el("div",{class:"mono", style:"font-size:13px;font-weight:700;color:var(--primary-dark);"}, info.telp || "-")
+          )
+        )
+      )
+    ));
+
     const myLink = location.origin + location.pathname + "#/tugas/" + encodeURIComponent(auth.currentUser.email);
     box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
       el("div",{class:"step-head"},
@@ -3198,11 +3248,26 @@ function groupSubmissions(list){
 function rowIds(row){ return row.type==="single" ? [row.sub.id] : row.subs.map(s=>s.id); }
 function isRowSelected(row){ const ids=rowIds(row); return ids.length>0 && ids.every(id=>SELECTED_IDS.has(id)); }
 
+/* Badge penanda di tabel dashboard: Kepala Divisi lihat DEPARTEMEN (PEM/SOSV/SCH) tiap baris;
+   Dept. Head/bawahan lihat SIAPA (dept head atau nama bawahan) yang jadi pemberi tugasnya. */
+function computeAssignmentBadge(sub){
+  const email = sub.assigned_by || sub.admin_signed_by;
+  if(!email || !CURRENT_VIEWER_ROLE){
+    return el("span",{class:"hint"}, "Belum ditugaskan");
+  }
+  if(CURRENT_VIEWER_ROLE.role === "kepala_divisi"){
+    const abbr = getDeptAbbrFromEmail(email);
+    return el("span",{class:"dept-badge"}, abbr || "-");
+  }
+  const label = getPersonLabelFromEmail(email);
+  return el("span",{class:"person-badge", title: email}, label || "-");
+}
 function renderTable(){
   const tableWrap = $("#table-wrap");
   if(!tableWrap) return;
   const flat = getFilteredFlatList();
   const rows = groupSubmissions(flat);
+  const badgeColLabel = CURRENT_VIEWER_ROLE && CURRENT_VIEWER_ROLE.role === "kepala_divisi" ? "Departemen" : "Pemberi Tugas";
 
   tableWrap.innerHTML = "";
   if(rows.length === 0){
@@ -3216,7 +3281,7 @@ function renderTable(){
     onchange:(e)=>{ toggleSelectAllRows(rows, e.target.checked); }});
   table.appendChild(el("thead",{}, el("tr",{},
     el("th",{style:"width:34px;"}, selectAllCb),
-    el("th",{},"Jenis Form"), el("th",{},"Nama Pengaju"), el("th",{},"NIK"), el("th",{},"Surveyor / Petugas"),
+    el("th",{},"Jenis Form"), el("th",{}, badgeColLabel), el("th",{},"Nama Pengaju"), el("th",{},"NIK"), el("th",{},"Surveyor / Petugas"),
     el("th",{},"Kategori HK"), el("th",{},"Kelayakan"), el("th",{},"Status Admin")
   )));
   const tbody = el("tbody",{});
@@ -3228,6 +3293,7 @@ function renderTable(){
       tbody.appendChild(el("tr",{class:"rowlink", onclick:()=>openBatchDetail(row)},
         el("td",{}, cb),
         el("td",{}, jenisFormLabel(first.jenis_form)),
+        el("td",{}, computeAssignmentBadge(first)),
         el("td",{}, el("strong",{}, `📦 ${row.subs.length} data`), el("div",{class:"hint"}, first.program_nama||"")),
         el("td",{class:"mono"}, "—"),
         el("td",{}, first.program_petugas || "—"),
@@ -3242,6 +3308,7 @@ function renderTable(){
       tbody.appendChild(el("tr",{class:"rowlink", onclick:()=>openDetail(sub)},
         el("td",{}, cb),
         el("td",{}, jenisFormLabel(sub.jenis_form)),
+        el("td",{}, computeAssignmentBadge(sub)),
         el("td",{}, el("strong",{}, sub.nama_pengaju || "—")),
         el("td",{class:"mono"}, sub.nik || "—"),
         el("td",{}, surveyorName),
