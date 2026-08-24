@@ -640,9 +640,10 @@ window.addEventListener("hashchange", route);
    ================================================================ */
 function renderLanding(app){
   const wrap = el("div",{class:"landing"},
-    el("div",{class:"eyebrow", style:"color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;"}, "Puskas BAZNAS · Had Kifayah"),
+    el("div",{class:"eyebrow", style:"color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px;"}, "Had Kifayah · Rumah Zakat"),
+    el("div",{style:"color:var(--ink-faint);font-size:12px;margin-bottom:14px;"}, "Mengacu kepada Puskas Baznas"),
     el("h1",{}, "Aplikasi Pooling Data Had Kifayah"),
-    el("p",{class:"lede"}, "Platform assessment kelayakan calon penerima manfaat dana zakat untuk surveyor di lapangan dan admin program."),
+    el("p",{class:"lede"}, "Platform assessment kelayakan calon penerima manfaat dana zakat"),
   );
   const savedRef = loadActiveSessionRef();
   if(savedRef || rapidSession){
@@ -653,12 +654,12 @@ function renderLanding(app){
   }
   wrap.appendChild(el("div",{class:"choices choices-3"},
       el("a",{class:"choice-card", href:"#/survey/full"},
-        el("div",{class:"eyebrow"}, "Surveyor · Tanpa Login"),
+        el("div",{class:"eyebrow"}, "Surveyor"),
         el("h3",{}, "Full Assessment"),
         el("p",{}, "Survei lengkap & perorangan terhadap calon penerima manfaat secara langsung di lapangan.")
       ),
       el("a",{class:"choice-card", href:"#/survey/rapid"},
-        el("div",{class:"eyebrow"}, "Surveyor · Tanpa Login"),
+        el("div",{class:"eyebrow"}, "Surveyor"),
         el("h3",{}, "Rapid Assessment"),
         el("p",{}, "Versi ringkas untuk layanan cepat/mendesak secara massal — ambulans, khitanan massal, bantuan sekolah, sembako, dsb.")
       ),
@@ -918,7 +919,7 @@ function topbar(isAdmin){
       el("div",{class:"mark"}, "HK"),
       el("div",{},
         el("div",{class:"name"}, "Had Kifayah"),
-        el("div",{class:"sub"}, "Puskas BAZNAS"),
+        el("div",{class:"sub"}, "Rumah Zakat"),
       )
     ),
     nav
@@ -3067,6 +3068,17 @@ function badgeLabelText(status){
   const map = { pending:"Menunggu Review", approved:"Layak Dibantu", attention:"Perlu Perhatian Khusus", rejected:"Tidak Layak" };
   return map[status] || status || "—";
 }
+/* Logo Rumah Zakat (base64) — dipakai di pojok kanan atas setiap halaman PDF. */
+const LOGO_RZ_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAKN2lDQ1BzUkdCIElFQzYxOTY2LTIuMQAAeJydlndUU9kWh8+9N71QkhCKlNBraFICSA29SJEuKjEJEErAkAAiNkRUcERRkaYIMijggKNDkbEiioUBUbHrBBlE1HFwFBuWSWStGd+8ee/Nm98f935rn73P3Wfvfda6AJD8gwXCTFgJgAyhWBTh58WIjYtnYAcBDPAAA2wA4HCzs0IW+EYCmQJ82IxsmRP4F726DiD5+yrTP4zBAP+flLlZIjEAUJiM5/L42VwZF8k4PVecJbdPyZi2NE3OMErOIlmCMlaTc/IsW3z2mWUPOfMyhDwZy3PO4mXw5Nwn4405Er6MkWAZF+cI+LkyviZjg3RJhkDGb+SxGXxONgAoktwu5nNTZGwtY5IoMoIt43kA4EjJX/DSL1jMzxPLD8XOzFouEiSniBkmXFOGjZMTi+HPz03ni8XMMA43jSPiMdiZGVkc4XIAZs/8WRR5bRmyIjvYODk4MG0tbb4o1H9d/JuS93aWXoR/7hlEH/jD9ld+mQ0AsKZltdn6h21pFQBd6wFQu/2HzWAvAIqyvnUOfXEeunxeUsTiLGcrq9zcXEsBn2spL+jv+p8Of0NffM9Svt3v5WF485M4knQxQ143bmZ6pkTEyM7icPkM5p+H+B8H/nUeFhH8JL6IL5RFRMumTCBMlrVbyBOIBZlChkD4n5r4D8P+pNm5lona+BHQllgCpSEaQH4eACgqESAJe2Qr0O99C8ZHA/nNi9GZmJ37z4L+fVe4TP7IFiR/jmNHRDK4ElHO7Jr8WgI0IABFQAPqQBvoAxPABLbAEbgAD+ADAkEoiARxYDHgghSQAUQgFxSAtaAYlIKtYCeoBnWgETSDNnAYdIFj4DQ4By6By2AE3AFSMA6egCnwCsxAEISFyBAVUod0IEPIHLKFWJAb5AMFQxFQHJQIJUNCSAIVQOugUqgcqobqoWboW+godBq6AA1Dt6BRaBL6FXoHIzAJpsFasBFsBbNgTzgIjoQXwcnwMjgfLoK3wJVwA3wQ7oRPw5fgEVgKP4GnEYAQETqiizARFsJGQpF4JAkRIauQEqQCaUDakB6kH7mKSJGnyFsUBkVFMVBMlAvKHxWF4qKWoVahNqOqUQdQnag+1FXUKGoK9RFNRmuizdHO6AB0LDoZnYsuRlegm9Ad6LPoEfQ4+hUGg6FjjDGOGH9MHCYVswKzGbMb0445hRnGjGGmsVisOtYc64oNxXKwYmwxtgp7EHsSewU7jn2DI+J0cLY4X1w8TogrxFXgWnAncFdwE7gZvBLeEO+MD8Xz8MvxZfhGfA9+CD+OnyEoE4wJroRIQiphLaGS0EY4S7hLeEEkEvWITsRwooC4hlhJPEQ8TxwlviVRSGYkNimBJCFtIe0nnSLdIr0gk8lGZA9yPFlM3kJuJp8h3ye/UaAqWCoEKPAUVivUKHQqXFF4pohXNFT0VFysmK9YoXhEcUjxqRJeyUiJrcRRWqVUo3RU6YbStDJV2UY5VDlDebNyi/IF5UcULMWI4kPhUYoo+yhnKGNUhKpPZVO51HXURupZ6jgNQzOmBdBSaaW0b2iDtCkVioqdSrRKnkqNynEVKR2hG9ED6On0Mvph+nX6O1UtVU9Vvuom1TbVK6qv1eaoeajx1UrU2tVG1N6pM9R91NPUt6l3qd/TQGmYaYRr5Grs0Tir8XQObY7LHO6ckjmH59zWhDXNNCM0V2ju0xzQnNbS1vLTytKq0jqj9VSbru2hnaq9Q/uE9qQOVcdNR6CzQ+ekzmOGCsOTkc6oZPQxpnQ1df11Jbr1uoO6M3rGelF6hXrtevf0Cfos/ST9Hfq9+lMGOgYhBgUGrQa3DfGGLMMUw12G/YavjYyNYow2GHUZPTJWMw4wzjduNb5rQjZxN1lm0mByzRRjyjJNM91tetkMNrM3SzGrMRsyh80dzAXmu82HLdAWThZCiwaLG0wS05OZw2xljlrSLYMtCy27LJ9ZGVjFW22z6rf6aG1vnW7daH3HhmITaFNo02Pzq62ZLde2xvbaXPJc37mr53bPfW5nbse322N3055qH2K/wb7X/oODo4PIoc1h0tHAMdGx1vEGi8YKY21mnXdCO3k5rXY65vTW2cFZ7HzY+RcXpkuaS4vLo3nG8/jzGueNueq5clzrXaVuDLdEt71uUnddd457g/sDD30PnkeTx4SnqWeq50HPZ17WXiKvDq/XbGf2SvYpb8Tbz7vEe9CH4hPlU+1z31fPN9m31XfKz95vhd8pf7R/kP82/xsBWgHcgOaAqUDHwJWBfUGkoAVB1UEPgs2CRcE9IXBIYMj2kLvzDecL53eFgtCA0O2h98KMw5aFfR+OCQ8Lrwl/GGETURDRv4C6YMmClgWvIr0iyyLvRJlESaJ6oxWjE6Kbo1/HeMeUx0hjrWJXxl6K04gTxHXHY+Oj45vipxf6LNy5cDzBPqE44foi40V5iy4s1licvvj4EsUlnCVHEtGJMYktie85oZwGzvTSgKW1S6e4bO4u7hOeB28Hb5Lvyi/nTyS5JpUnPUp2Td6ePJninlKR8lTAFlQLnqf6p9alvk4LTduf9ik9Jr09A5eRmHFUSBGmCfsytTPzMoezzLOKs6TLnJftXDYlChI1ZUPZi7K7xTTZz9SAxESyXjKa45ZTk/MmNzr3SJ5ynjBvYLnZ8k3LJ/J9879egVrBXdFboFuwtmB0pefK+lXQqqWrelfrry5aPb7Gb82BtYS1aWt/KLQuLC98uS5mXU+RVtGaorH1futbixWKRcU3NrhsqNuI2ijYOLhp7qaqTR9LeCUXS61LK0rfb+ZuvviVzVeVX33akrRlsMyhbM9WzFbh1uvb3LcdKFcuzy8f2x6yvXMHY0fJjpc7l+y8UGFXUbeLsEuyS1oZXNldZVC1tep9dUr1SI1XTXutZu2m2te7ebuv7PHY01anVVda926vYO/Ner/6zgajhop9mH05+x42Rjf2f836urlJo6m06cN+4X7pgYgDfc2Ozc0tmi1lrXCrpHXyYMLBy994f9Pdxmyrb6e3lx4ChySHHn+b+O31w0GHe4+wjrR9Z/hdbQe1o6QT6lzeOdWV0iXtjusePhp4tLfHpafje8vv9x/TPVZzXOV42QnCiaITn07mn5w+lXXq6enk02O9S3rvnIk9c60vvG/wbNDZ8+d8z53p9+w/ed71/LELzheOXmRd7LrkcKlzwH6g4wf7HzoGHQY7hxyHui87Xe4Znjd84or7ldNXva+euxZw7dLI/JHh61HXb95IuCG9ybv56Fb6ree3c27P3FlzF3235J7SvYr7mvcbfjT9sV3qID0+6j068GDBgztj3LEnP2X/9H686CH5YcWEzkTzI9tHxyZ9Jy8/Xvh4/EnWk5mnxT8r/1z7zOTZd794/DIwFTs1/lz0/NOvm1+ov9j/0u5l73TY9P1XGa9mXpe8UX9z4C3rbf+7mHcTM7nvse8rP5h+6PkY9PHup4xPn34D94Tz+49wZioAAAAJcEhZcwAALiMAAC4jAXilP3YAABCbSURBVHic7V0NeFPV3T/n3JuP0tA2KVBaP5jIo1PXYivJbYd7GKDb3r3P5gtTqAw/ioi1pkmVTTd1Y/j1OoV3TVIQvxAVFXBf4DZ1mzK2aZMWQWSyuTGUx75CbfMBFm3a5J73f9IEb0PSpslN7u1Lfk9v77n33Jzzz/2dj//5n/854SmlKA/1gFdagDyGI0+IypAnRGXIE6Iy5AlRGfKEqAx5QlSGPCEqQ54QlSFPiMqQNUK6Fk8rMEwpN1OC6hDGlRihc+F2BRxGOCYgigYRRschfBzCH0D4EBLFfSgc/qvjkT1/WyWKYrZkY9g1j/CVlbNqMCaXIgryYXo+QvgMiCqFQwcHy/8EorSHYtwN8v8dwu+KCHd8EAy9VbOhczAbcslKSNeNlabCwsKFmOKFhqkVc+El63GyhzHi4L8ejikQnhG5R0jksNuEjwMtdb8Oi+EXJrft3gXcyGJwYyTMvMjyDcrh+plVwjfRUOFgssT+xUMLhckIMedB+CsQRiAhmq7n+0C+PyCR/jx4LLi97Om9J+SQj0EWQnqswsU8T1YaJhiuROwlJ2UhZUyBYwVHuBU+m3DAb69zHjna99SFW/cPpCdfpYHjDMtnVllugxd/VubiIQMcCxDBC3RG3TGQ7+lQeNAFhedgpglnRIi/ufYixOEHNDz5FmJFTIZvmgAXQsHcUFFuuDNgE+4ytXU+l2qN+fliwl1WZr5JwxtWw+WkJLUgQ+BikM+m4TVNQMxmLA7+pMS1+3C6qaVFCCtxPFd4L+awNd000sDZ0Jw967UJy3uss5aPVhp7m80188uFjRCcmSP5eCDmesRpFgXsdfcfCoYeTqefGfPL9Nsss6HEPQPB6WP9rByAMj4HSuNen11oNjk8m+LjCSHY22y5nef4e+FSk3sJQWHB6H7oZxZ6bealpc7Of4zlw2MixG+rvRUT7qGxfi4LMBBMngq01AqH+sO2WElkmp2vWdgML2ShwvIxXMIRfje8swaj0/1iqh9K6cVG2uKplnWY4JvSly8bwI3n6PmKg/bzF+lC+gmG8ortiGlD6kEhvLOt0IRdUOJovyeVD4xKCFMVL6uyPA9f/qrM5ZMf0IR9exIy/gJpMNPMzErLkwBM2VkNpBQBKd8b7eERCYm0xzZhEwRVScZJYPyfSoswKjBa6W+p7Te2uu8e6bERCYExwANw+q6sgp3GgKpyF5DSBaRsSPZMUkLgg4sggTuyI9rpC3inTtBU9xudHW8kik9ISHdTzRd0Wu1jKDsjqdMdGtBUtxxeVlM5beOeQHzkKYSwfsPXbHmSjUBzI1/GOE4pfQYz/R/hJcx+prRAKeDM4onatXC+IT7iFEJ8VvN3oZOclxOxMocnKNKry5zu99lFj1VwaTi8FeQ/T2nBRgXGDdB0bYxvuoYRcnjZdH1x0ZQHcitZWqDw9zAMCu+Wmicmt3ne7rFWXsLzhvVQY65RUsAUgKHpWgstUp3UNjeMkOKiMlaFzsq5aGNDL0h/HWgqv6tJEDm5bX8fnK712YXXYTTfBuHCHMs3Fgheq/kbcH45duMkIauBKrtNuE0RsVIEEPEnOhBcalq/539He5bZuXzWWR7Ma7ZAbanKhXzpABPyfZSIEJvVcjlSyGCYAsLQcd//2tGOe67cKoalERHL81AT1fPRkb4fSudMTG27/961eFqtobyiFS5X5Fzq1PDV3uba8ya53P9kF583WQSrtc39CBhYWupw77wyLqLXbqnWcIVb0NCMHqooN1zabautj3XyDGduPfwZnG6CcdVrQNpjKtQeMceha+EcGcFHCNnTaNaco+dVaH6grwYHgteWrd/7cXxMwF5n5TG3Bg3Nf8dg0RG012+rvTHewgp9zrYeu/ktDeK2QHc6K9uSjwUwWLwCSQmZziMBTiVKChWHEBLFHznaOh+Kd3b48JaZxon8hCeSm9hxMSZom7+lbv3x490rp2081B+Lmezo/PeBxZWzy6cW/hRjbEfqGfhe5GuqOYP1jRFCKMfNVotk0HEfRkhcYnR63lzlHB7nazYLEzUTXoDgOaOlA9+nqaio7FKvzbxYOkkU7WNuDdiEnTAKZjOKpTJ/hXSAsVY7G87bIoRAlalWWKAYftU3+OkNZ63b55feHLI6W75POP4+NIZZQKZdcYTvDLTUNZW0tj8rjStxenb4rUI15snzcHmpPOKnjygHQ4RQjL6ocA0JIkpvN7k6XPEODEcazZN8NuFpCH4zzbSZh8gzfnvdvIFAv1XqsmNs83y4ax6ZW1VpWQ1N2A/gFkn/K2QG+NIXsHO0hig6GDwIWlQ9aFFviY7hEQG7MKdAzz8HwTMyzYQ5IOiMeiFwy6z6knW734ndn/O6GILTXT573S6CEfMVKMs0r7TkY04cAD46IFSmQ6f0BRHhxlJH+3Hp7aEpY+EuGDX9GC45GXO8AGk0bujwW4yt7Y9JI0yO9t8z/zINTzbD5XwZ80wJUENM7Mw3XjOzAOW+qn5KEbUbHe4n4iN6G83ll021MEeFbBk4C6A0Pgr9ynzUH1pRsqHzWCxicpvnKBTQr9mbLXdClfoJkrcwjAgcNfEo4D1C36VhtNjocr8bHwPjh6/zep41G1NyIMgipOcv8cJAstTp3h27GVWz74Nxzi54S6zDPzMHsjBE1Ht+w7P7PoMmi3Wk2e/XKd34WTDcXL6h81Pp7YjPbZVwLyb4dpTb2nouR/Ab0H/cMcnlcUgVihJH+19Aoagu0HGbcjRnHxkv8axEQPVlM1fGLGb2CRJpY4nT/Xx8ZxVoNJ8NZLCxxZezmP9I0EJn/jOvTZjbdWNlw5mP7/fFIqDg9EIX+y2IWwmllU1LZNPxrpf9G1J7YQCMs0fI3lCY1seMZ1LA4Ozb0Gw8haIdmpJg7kSGQsNef4twtbHV82bsfrTWrPHZLX8mmGN2s1EHpekAMuli56jaS9+D/7KbqCmlbV7k/94M13tB6f2D9vN1pcj0ECakGanHfMFwNkZkF/Qfqxwuz4NSs43J0dEBtbkaChBTROLtnBkDU8bB5536PiSv75VfRPQGk8P9q/hq12M3nzsJm7ZC8BIZ85MTPPPNhX51TndT9TVSw2ZUI7sKanYTqORrZZ2/p+jtocwBYVF8gyNyaXi0HYVDV5sSuOSD/l+vwfyjECySKbNs4ms6rX6fr6V2qanV/Zo0osTpWQ9jljflnL+HJqSdnSOE9PX1uouLyphJIZPpTsk89+5hbviR5W3lFa1YvZNEyTCVIPyq3157yuSYzPP3/47N4UQIYSZqKL1/hISvyCDRW0ta3Y74eW6fddYFhqkVrImqzCBtJcFhjH88v1yYC+rxEhjRd8UiYvP3fnudny3aSTcDStFvY2HpwJBpEGkTArrIU4nuY07TCG3teCXjJDBTyzGqh+CaU+JCg08ijSZ9QsTQ87HwSUJOHPloOzQrXpTm/AAJh5iW9tf4+0ZHux1qXztmhI0PJ7ZE8EFbdWVpa/vOhLE8n0mBO2BydXpOJhULsLlnqHqPQNUb0Ts7KXh+i88u3B0MitviR+LG1nYW10sQYVVTm67kSgA6xgAeHJxbKrEQx3B4WU1J8UTttVDQUlr7kQjQsqyVXg+zZQ0M9rtAs2hBQ3MIY8UZbFVTgZ48CGrhPYcGxMelTmwmh+eP/pZaO0b4kfREVwQURoZLSuLI6L6uulBXol9ZXKRj6z0mZpB+19GjfZulo+JhhDCdO9BSC21kxNKZLsoQIeum68kN3U013ylbv+eDWESps+NRn01gGolSZpKxgdItRqfnZektZqLXGfW/RLKM2Ond8Uu9T7H2DoZOrNXwhmUoOmGSAWq0Wt3O3kbzlydt6DzCbjAzBOj1a0CV/GWGaecEISQ+LL1my8A1PGFjEjlMPR0OZ8ezq1qH3zyFEKbK+W1CIybkd5nmCJrJF3g970ISU0OwP/xqgZ5nphRd8k+qAfTDSY6OvdI7mKBNSB4yBkM03Jho+5CE8yGsmgZa6pga2yBD5guY607McYF1+NAsHoSvd5EMaWcReL/0KnDLrCpQbeXx56LovniyY0g6QTUY6rNpuMLZMpgGiB7rp8H5pCcJaC5eNVkUE4HJOOyGRiOXldd9KBj670SO4gxJCWFNV6/dUs8jjq1fKMhEAozFYZNOoGmFkz2rGlA0TEaRihxokZmm+jGouVeNtMPDiFO4rFpB83IzvMJNmUqSBwqJiC4xOdxdIz006px6Sav76YC9rpIt65VPttMPlCIrkPHaaM+l5OTgcHlut9sEtlRhQcaSnZ5YY3S0P5rKgykRwtSzw8umLykqKnuFbf6SmWw5xyE43odOejIesjjnVJ+AfDc7nZ474scbyZCyGxAz0QcazVcgPc+qnVpn+6RgRNxmcnp2xLxJvFbBzPFkBwSn5kIAyHT7O+94GsayXeGY/LLYFOZHzbVfL+Dw62peJgbYFvT3L2N+vKKkZJa2eTp9LbVNObIUvHL8eHd91FU1ZYzZUa7C5fYeaTTPh9H27+FSLV7zJ8HWrJe6Oq5Ptuvc/nc6XppZZTmW1ZVUFL187JPuhdK1KakiLc9F5q8Eo+/5EzUTmOFNSCeNLGGPF/lXjLQFICuxAXvtv6AnycoqKsj4JS/yXTVj46Hg6E+firRdSZkpxLv8wsuJoXgHNF9fTTcdGUFFGr55huO9UV8ExbgvGz07kPHc+/2hhpoN76W9hWxGvr2lTxz4BLSv/yguKmOLYWT3VRoTKN3JfKdSeRRH3p3M2SPqcjo7WjLdbzhjZ2vWTq4mZLGt2eLAOLIppiKgGKW8jZ7cWSNRvNPo9DyYqmo7EmTxfo+WimZ/S91hKH0/RQqsRKKh0K5c5wlU9ENBaAAytsiVpKzLEYyt7WsCNuGfiBC26imdaeB0IX4Qwgdz7CD8McXiAqkfsByQfX0IW0zZYxW+ouHxDraLtNzpJ8GJbO3FngjQAe0bGAj+l3R6Wi5kZcEO8+rrbqqepdXqt+XI1JKzlU5Ax4sD/mCDnPu9S5G1FVTMYWJPo/nyc3T8KY5l4xEEkzBoUneUOjseluvHARIhq0vaos2InS0sXeXKZk7Zh8PpeQmUl+2iDJrUSMjJGsNs/xZILpCr76D0luF5xEERQqCwrSME16hwq6QYjmAkblIiY0UIMTk9v+huqnlLp9Wx8Yq6vBgpejk42H99oi2hcgHFmiymw++aR+ZUVQqrMEY/RDlVXRPiM0TpDxLtt5JLKNqHRCdvfuS3WV7BhNsE4RlKyAHq7NsojJayzQzi91vJNVTRqbO9a7uvq75Ya9Q/BAPJm1Hu5r1DlKIHjxw9cW+6v28lN1RBCEN05HuLr9nya8KRJ3Ngdjkg0nADM9lnc8eEsUI1hMQAbfgffPa6LxGMmOf5jSgLtYVpeT4c+E0qk1m5huoIYTANbdd0k88uvIgxeZx50cuaPmh5im8dkQSqJCQGtuoK+pYv6Yx6tmSMbVqptCaWdaiaEIZo37LSaxW2EB4/hhG+WGmZsgnVExID86mCcYu5qspiw0NL7jJZ26dajBtCGKLjlv/xNdVsJVrtz9T6Q2WZYFwREkN0M/5F3pa6uRyiLiAmK1smKYFxSUgMbCE/NGMXQzO2XGlZ5MK4JoQh2owl/dWz8YZxT8j/N+QJURnyhKgMeUJUhjwhKkOeEJUhT4jKkCdEZfg/TreeLjJK6f4AAAAASUVORK5CYII=";
+const PDF_ORANGE = [239, 111, 56];
+function pdfAddLogo(doc){
+  try{
+    const pageW = doc.internal.pageSize.getWidth();
+    const size = 15, marginX = 14, marginY = 10;
+    doc.addImage(LOGO_RZ_BASE64, "PNG", pageW - marginX - size, marginY, size, size);
+  } catch(e){ /* lewati jika logo gagal dimuat */ }
+}
+
 function generateAssessmentPDF(sub){
   if(typeof window.jspdf === "undefined"){ toast("Modul PDF gagal dimuat (periksa koneksi internet)."); return; }
   const { jsPDF } = window.jspdf;
@@ -3118,19 +3130,27 @@ async function generateBulkPDFZip(subs){
 /* ---------------- PDF Full Assessment (ringkasan per-bagian) ---------------- */
 function drawFullAssessmentPDF(doc, sub){
   let y = 18;
+  pdfAddLogo(doc);
 
   doc.setFont("helvetica","bold"); doc.setFontSize(14);
-  doc.text("Had Kifayah — Puskas BAZNAS", 14, y); y += 6;
+  doc.setTextColor(...PDF_ORANGE);
+  doc.text("Had Kifayah — Rumah Zakat", 14, y); y += 5;
+  doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+  doc.setTextColor(130,130,130);
+  doc.text("Mengacu kepada Puskas Baznas", 14, y); y += 7;
+  doc.setTextColor(15,15,15);
   doc.setFont("helvetica","normal"); doc.setFontSize(11);
   doc.text("Full Assessment — " + (sub.nama_pengaju || "-"), 14, y); y += 10;
 
   const addSection = (title, pairs) => {
-    if(y > 265){ doc.addPage(); y = 18; }
+    if(y > 265){ doc.addPage(); pdfAddLogo(doc); y = 18; }
     doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.setTextColor(...PDF_ORANGE);
     doc.text(title, 14, y); y += 6;
+    doc.setTextColor(15,15,15);
     doc.setFont("helvetica","normal"); doc.setFontSize(10);
     pairs.forEach(([k,v])=>{
-      if(y > 275){ doc.addPage(); y = 18; }
+      if(y > 275){ doc.addPage(); pdfAddLogo(doc); y = 18; }
       const text = `${k}: ${v==null || v==="" ? "-" : v}`;
       const lines = doc.splitTextToSize(text, 180);
       doc.text(lines, 14, y);
@@ -3159,7 +3179,7 @@ function drawFullAssessmentPDF(doc, sub){
 
   const addSignature = (label, dataUrl) => {
     if(!dataUrl) return;
-    if(y > 230){ doc.addPage(); y = 18; }
+    if(y > 230){ doc.addPage(); pdfAddLogo(doc); y = 18; }
     doc.setFont("helvetica","bold"); doc.setFontSize(10);
     doc.text(label, 14, y); y += 4;
     try{ doc.addImage(dataUrl, "PNG", 14, y, 60, 26); } catch(e){ /* lewati jika format gambar tak terbaca */ }
@@ -3182,7 +3202,7 @@ function pdfCheckboxGroup(doc, x, y, maxWidth, items, isCheckedFn){
     doc.setDrawColor(60,60,60);
     doc.rect(curX, curY - boxSize + 0.8, boxSize, boxSize);
     if(checked){
-      doc.setFillColor(20,92,70);
+      doc.setFillColor(...PDF_ORANGE);
       doc.rect(curX+0.5, curY - boxSize + 1.3, boxSize-1, boxSize-1, "F");
       doc.setFillColor(0,0,0);
     }
@@ -3220,7 +3240,7 @@ function pdfFieldFull(doc, x, y, maxWidth, label, val){
   return y + 4.6 + lines.length*4.6 + 1.5;
 }
 function pdfSectionHeader(doc, x, y, width, code, title){
-  doc.setFillColor(20,92,70);
+  doc.setFillColor(...PDF_ORANGE);
   doc.rect(x, y, width, 6.5, "F");
   doc.setFont("helvetica","bold"); doc.setFontSize(9.5);
   doc.setTextColor(255,255,255);
@@ -3231,16 +3251,17 @@ function pdfSectionHeader(doc, x, y, width, code, title){
 function drawRapidAssessmentPDF(doc, sub){
   const pageW = 210, marginX = 14, contentW = pageW - marginX*2, halfW = contentW/2 + 5;
   let y = 16;
+  pdfAddLogo(doc);
 
   doc.setFont("helvetica","bold"); doc.setFontSize(13);
-  doc.setTextColor(15,15,15);
+  doc.setTextColor(...PDF_ORANGE);
   doc.text("FORM RAPID ASSESSMENT INDIVIDU", pageW/2, y, {align:"center"}); y += 5.5;
-  doc.setFont("helvetica","italic"); doc.setFontSize(9.5);
-  doc.setTextColor(90,90,90);
-  doc.text("Program Penyaluran Sekali Implementasi — Had Kifayah, Puskas BAZNAS", pageW/2, y, {align:"center"}); y += 9;
+  doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+  doc.setTextColor(130,130,130);
+  doc.text("Had Kifayah · Rumah Zakat — Mengacu kepada Puskas Baznas", pageW/2, y, {align:"center"}); y += 9;
   doc.setTextColor(15,15,15);
 
-  const ensureSpace = (needed) => { if(y + needed > 285){ doc.addPage(); y = 16; } };
+  const ensureSpace = (needed) => { if(y + needed > 285){ doc.addPage(); pdfAddLogo(doc); y = 16; } };
 
   // A. DATA PROGRAM
   ensureSpace(34);
