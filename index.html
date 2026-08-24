@@ -2820,6 +2820,7 @@ let unsubscribeSnapshot = null;
 let SELECTED_IDS = new Set();
 
 let ADMIN_SIGNATURE = null;
+let ADMIN_NAME = null;
 function renderDashboard(shell, user){
   const roleInfo = getRoleInfo(user.email);
   if(!roleInfo){
@@ -2836,16 +2837,22 @@ function renderDashboard(shell, user){
 
   SELECTED_IDS = new Set();
   ADMIN_SIGNATURE = null;
+  ADMIN_NAME = null;
   if(auth.currentUser){
     db.collection("admin_profiles").doc(auth.currentUser.uid).get()
-      .then(doc=>{ ADMIN_SIGNATURE = doc.exists ? (doc.data().signature || null) : null; })
-      .catch(()=>{ ADMIN_SIGNATURE = null; });
+      .then(doc=>{
+        ADMIN_SIGNATURE = doc.exists ? (doc.data().signature || null) : null;
+        ADMIN_NAME = doc.exists ? (doc.data().nama || null) : null;
+        const nameEl = $("#dash-admin-name");
+        if(nameEl && ADMIN_NAME) nameEl.textContent = `Masuk sebagai ${ADMIN_NAME} (${user.email})`;
+      })
+      .catch(()=>{ ADMIN_SIGNATURE = null; ADMIN_NAME = null; });
   }
   shell.innerHTML = "";
   shell.appendChild(el("div",{class:"dash-head"},
     el("div",{},
       el("h1",{},"Dashboard Assessment"),
-      el("div",{style:"color:var(--ink-muted);font-size:13px;margin-top:4px;"}, "Masuk sebagai " + user.email),
+      el("div",{id:"dash-admin-name", style:"color:var(--ink-muted);font-size:13px;margin-top:4px;"}, "Masuk sebagai " + user.email),
       el("div",{style:"color:var(--primary);font-size:12.5px;font-weight:700;margin-top:2px;"}, roleLabel),
     ),
     el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan")
@@ -3045,6 +3052,7 @@ async function toggleSettingsPanel(){
     const emails = doc.exists ? (doc.data().emails || "") : "";
     const profileDoc = await db.collection("admin_profiles").doc(auth.currentUser.uid).get();
     const existingSig = profileDoc.exists ? (profileDoc.data().signature || null) : null;
+    const existingNama = profileDoc.exists ? (profileDoc.data().nama || "") : "";
     box.innerHTML = "";
 
     const myLink = location.origin + location.pathname + "#/tugas/" + encodeURIComponent(auth.currentUser.email);
@@ -3078,6 +3086,7 @@ async function toggleSettingsPanel(){
           try{
             await db.collection("app_settings").doc("notifications").set({ emails: val }, {merge:true});
             toast("Pengaturan disimpan.");
+            box.innerHTML = "";
           } catch(err){ toast("Gagal menyimpan: " + friendlyFirestoreError(err)); }
         }}, "Simpan")
       )
@@ -3086,8 +3095,12 @@ async function toggleSettingsPanel(){
     const sigPanel = el("div",{class:"step-panel"},
       el("div",{class:"step-head"},
         el("div",{class:"eyebrow"}, "Pengaturan"),
-        el("h2",{style:"font-size:18px;"}, "Tanda Tangan Saya"),
-        el("div",{class:"desc"}, "Otomatis disematkan ke PDF sebagai tanda tangan Pemberi Tugas setiap kali Anda menentukan status kelayakan (Layak Dibantu / Perlu Perhatian Khusus / Tidak Layak Dibantu) pada suatu assessment.")
+        el("h2",{style:"font-size:18px;"}, "Nama & Tanda Tangan Saya"),
+        el("div",{class:"desc"}, "Nama ditampilkan di PDF (kolom Pemberi Tugas), tanda tangan otomatis disematkan setiap kali Anda menentukan status kelayakan (Layak Dibantu / Perlu Perhatian Khusus / Tidak Layak Dibantu) pada suatu assessment.")
+      ),
+      el("div",{class:"field-tight"},
+        el("label",{}, "Nama Pejabat"),
+        el("input",{type:"text", id:"settings-nama-input", value: existingNama, placeholder:"Contoh: Ustadz Fulan"})
       )
     );
     if(existingSig){
@@ -3099,17 +3112,21 @@ async function toggleSettingsPanel(){
     sigBox.appendChild(pad.el);
     sigPanel.appendChild(sigBox);
     sigPanel.appendChild(el("button",{class:"btn btn-primary", style:"margin-top:12px;", onclick: async ()=>{
-      if(pad.isEmpty()){ toast("Mohon bubuhkan tanda tangan terlebih dahulu."); return; }
+      const namaVal = $("#settings-nama-input").value.trim();
+      if(!namaVal){ toast("Mohon isi Nama Pejabat terlebih dahulu."); return; }
+      if(!existingSig && pad.isEmpty()){ toast("Mohon bubuhkan tanda tangan terlebih dahulu."); return; }
       try{
-        const dataUrl = pad.toDataURL();
-        await db.collection("admin_profiles").doc(auth.currentUser.uid).set({
-          signature: dataUrl, email: auth.currentUser.email,
-          updated_at: firebase.firestore.FieldValue.serverTimestamp(),
-        }, {merge:true});
-        ADMIN_SIGNATURE = dataUrl;
-        toast("Tanda tangan tersimpan.");
-      } catch(err){ toast("Gagal menyimpan tanda tangan: " + friendlyFirestoreError(err)); }
-    }}, "Simpan Tanda Tangan"));
+        const payload = { nama: namaVal, email: auth.currentUser.email, updated_at: firebase.firestore.FieldValue.serverTimestamp() };
+        if(!pad.isEmpty()) payload.signature = pad.toDataURL();
+        await db.collection("admin_profiles").doc(auth.currentUser.uid).set(payload, {merge:true});
+        if(payload.signature) ADMIN_SIGNATURE = payload.signature;
+        ADMIN_NAME = namaVal;
+        const nameEl = $("#dash-admin-name");
+        if(nameEl) nameEl.textContent = `Masuk sebagai ${namaVal} (${auth.currentUser.email})`;
+        toast("Pengaturan tersimpan.");
+        box.innerHTML = "";
+      } catch(err){ toast("Gagal menyimpan: " + friendlyFirestoreError(err)); }
+    }}, "Simpan"));
     box.appendChild(sigPanel);
   } catch(err){
     box.innerHTML = "";
@@ -3420,7 +3437,7 @@ function dsection(title, pairs){
 }
 async function updateStatus(sub, status){
   if(!ADMIN_SIGNATURE){
-    toast("Anda belum membuat tanda tangan. Buka ⚙️ Pengaturan → Tanda Tangan Saya terlebih dahulu.");
+    toast("Anda belum membuat tanda tangan. Buka ⚙️ Pengaturan → Nama & Tanda Tangan Saya terlebih dahulu.");
     return;
   }
   try{
@@ -3428,6 +3445,7 @@ async function updateStatus(sub, status){
       admin_status: status,
       admin_signature: ADMIN_SIGNATURE,
       admin_signed_by: auth.currentUser ? auth.currentUser.email : "-",
+      admin_signed_by_nama: ADMIN_NAME || null,
       admin_signed_at: firebase.firestore.FieldValue.serverTimestamp(),
     });
     toast("Status diperbarui.");
@@ -3660,7 +3678,7 @@ function drawFullAssessmentPDF(doc, sub){
   y = pdfSignatureBlock(doc, marginX, y, contentW, [
     { label:"Surveyor", name: sub.nama_surveyor, phone: sub.phone_surveyor, sigDataUrl: sub.ttd_petugas },
     { label:"Penerima Manfaat", name: sub.nama_pengaju, phone: sub.telp, sigDataUrl: sub.ttd_pengaju },
-    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by, phone: "", sigDataUrl: sub.admin_signature },
+    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by_nama || sub.admin_signed_by, phone: "", sigDataUrl: sub.admin_signature },
   ]);
 }
 
@@ -3894,7 +3912,7 @@ function drawRapidAssessmentPDF(doc, sub){
   y = pdfSignatureBlock(doc, marginX, y, contentW, [
     { label:"Petugas/Amil Pelaksana Assessment", name: sub.program_petugas, phone: sub.program_telp_petugas, sigDataUrl: sub.ttd_petugas },
     { label:"Penerima Manfaat", name: sub.nama_pengaju || sub.nama, phone: sub.telp, sigDataUrl: sub.ttd_pengaju },
-    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by, phone: "", sigDataUrl: sub.admin_signature },
+    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by_nama || sub.admin_signed_by, phone: "", sigDataUrl: sub.admin_signature },
   ]);
 }
 
