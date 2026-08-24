@@ -749,10 +749,11 @@ function route(){
     renderSelfFillPage(app, hash.slice(4));
   } else if(hash.startsWith("tugas/")){
     renderTugasLanding(app, decodeURIComponent(hash.slice(6)));
-  } else if(hash === "admin"){
-    renderAdminPage(app);
   } else {
-    renderLanding(app);
+    // Root ("/") maupun path lain yang tak dikenali langsung diarahkan ke Login Admin —
+    // aplikasi ini sekarang HANYA diakses publik lewat Link Tugas pribadi tiap pejabat
+    // (#/tugas/<email>), bukan lewat halaman pilihan umum lagi.
+    renderAdminPage(app);
   }
   window.scrollTo(0,0);
 }
@@ -781,35 +782,6 @@ function renderAssessmentChoices(){
       ),
   );
 }
-function renderLanding(app){
-  const wrap = el("div",{class:"landing"},
-    el("div",{class:"eyebrow", style:"color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px;"}, "Had Kifayah · Rumah Zakat"),
-    el("div",{style:"color:var(--ink-faint);font-size:12px;margin-bottom:14px;"}, "Mengacu kepada Puskas Baznas"),
-    el("h1",{}, "Aplikasi Pooling Data Had Kifayah"),
-    el("p",{class:"lede"}, "Platform assessment kelayakan calon penerima manfaat dana zakat"),
-  );
-  if(ASSIGNED_BY){
-    wrap.appendChild(el("div",{class:"active-session-banner", style:"background:var(--primary-tint);border-color:var(--primary);color:var(--primary-dark);justify-content:space-between;"},
-      el("span",{style:"display:flex;align-items:center;gap:10px;"},
-        el("span",{class:"dot-pulse", style:"background:var(--primary);"}),
-        `Formulir yang Anda isi akan tertaut ke tugas dari ${ASSIGNED_BY}`
-      ),
-      el("button",{type:"button", class:"inline-btn", style:"margin-top:0;color:var(--primary-dark);", onclick:()=>{ clearAssignedByRef(); route(); }}, "Hapus Tautan")
-    ));
-  }
-  const savedRef = loadActiveSessionRef();
-  if(savedRef || rapidSession){
-    wrap.appendChild(el("a",{href:"#/survey/rapid", class:"active-session-banner"},
-      el("span",{class:"dot-pulse"}),
-      el("span",{}, rapidSession ? `Sesi Rapid Assessment "${rapidSession.nama_program}" masih berjalan — lanjutkan →` : "Anda punya sesi Rapid Assessment yang belum diakhiri — lanjutkan →")
-    ));
-  }
-  wrap.appendChild(renderAssessmentChoices());
-  wrap.appendChild(el("div",{style:"margin-top:28px;"},
-      el("a",{href:"#/admin", class:"btn btn-ghost"}, "Login Admin →")
-  ));
-  app.appendChild(wrap);
-}
 function renderTugasLanding(app, email){
   const info = getRoleInfo(email);
   if(!info){
@@ -817,7 +789,6 @@ function renderTugasLanding(app, email){
       el("div",{class:"eyebrow", style:"color:var(--danger);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;"}, "Link Tidak Valid"),
       el("h1",{style:"font-size:24px;"}, "Link tugas ini tidak dikenali"),
       el("p",{class:"lede"}, "Pastikan link yang dibagikan sudah benar, atau hubungi pemberi tugas Anda."),
-      el("a",{href:"#/", class:"btn btn-ghost", style:"margin-top:20px;"}, "← Ke Beranda")
     ));
     return;
   }
@@ -834,6 +805,13 @@ function renderTugasLanding(app, email){
       el("span",{}, `Anda mengisi formulir ini atas penugasan dari ${info.nama ? info.nama+" — " : ""}${email}. Silakan pilih jenis assessment di bawah.`)
     ),
   );
+  const savedRef = loadActiveSessionRef();
+  if(savedRef || rapidSession){
+    wrap.appendChild(el("a",{href:"#/survey/rapid", class:"active-session-banner"},
+      el("span",{class:"dot-pulse"}),
+      el("span",{}, rapidSession ? `Sesi Rapid Assessment "${rapidSession.nama_program}" masih berjalan — lanjutkan →` : "Anda punya sesi Rapid Assessment yang belum diakhiri — lanjutkan →")
+    ));
+  }
   wrap.appendChild(renderAssessmentChoices());
   app.appendChild(wrap);
 }
@@ -1068,9 +1046,9 @@ function renderSurveyPage(app){
 }
 
 function topbar(isAdmin){
-  // "Login Admin" HANYA muncul di tombol khusus pada halaman Beranda (renderLanding) —
-  // topbar sendiri tidak pernah menampilkannya lagi, supaya tidak tampil di
-  // halaman Full/Rapid Assessment (surveyor) maupun di halaman login admin itu sendiri.
+  // Sejak akses publik hanya lewat Link Tugas (#/tugas/<email>), URL root ("#/") langsung
+  // mengarah ke Login Admin — jadi tautan "Beranda" di topbar kini otomatis berfungsi
+  // sebagai jalan pulang ke Login Admin (bukan halaman pilihan umum lagi).
   // isAdmin: true = tampil "Keluar" (sudah login di dashboard admin), false = tampil "Beranda" saja,
   // "public" = tanpa navigasi sama sekali (link mandiri utk calon peserta).
   const nav = isAdmin === "public" ? null : el("nav",{},
