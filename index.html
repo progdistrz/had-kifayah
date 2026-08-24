@@ -862,10 +862,14 @@ const ASNAF_NOTES = `
 let formState = {};
 let currentStepIndex = 0;
 let dynTables = { penghasilan: [], pengeluaran: [], hutang: [] };
+let sigSurveyorFull = null;
+let sigPengajuFull = null;
 
 function resetFormState(){
   formState = {};
   currentStepIndex = 0;
+  sigSurveyorFull = null;
+  sigPengajuFull = null;
   dynTables = {
     penghasilan: [ blankRow("penghasilan") ],
     pengeluaran: [
@@ -968,6 +972,25 @@ function renderWizard(body){
   // Kelayakan gauge shown right after penghasilan step & pada step pengeluaran (karena hutang mempengaruhi Gharim)
   if(step.key === "penghasilan" || step.key === "pengeluaran"){
     form.appendChild(renderKifayahGauge());
+  }
+
+  // Tanda tangan Surveyor & Penerima Manfaat — ditandatangani langsung di lapangan pada
+  // langkah terakhir (Resume & Rekomendasi), sebelum formulir dikirim.
+  if(step.key === "resume"){
+    form.appendChild(sectionHeading(null, "Tanda Tangan"));
+    const sigGrid = el("div",{class:"row2"});
+
+    const surveyorBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, "Surveyor — " + (formState.nama_surveyor || "")));
+    sigSurveyorFull = createSignaturePad();
+    surveyorBox.appendChild(sigSurveyorFull.el);
+    sigGrid.appendChild(surveyorBox);
+
+    const pengajuBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, "Penerima Manfaat — " + (formState.nama_pengaju || "")));
+    sigPengajuFull = createSignaturePad();
+    pengajuBox.appendChild(sigPengajuFull.el);
+    sigGrid.appendChild(pengajuBox);
+
+    form.appendChild(sigGrid);
   }
 
   const isLast = currentStepIndex === STEPS.length - 1;
@@ -1223,6 +1246,8 @@ function renderKifayahGauge(){
 async function submitAssessment(body){
   const step = STEPS[STEPS.length-1];
   if(!validateStep(step)) return;
+  if(!sigSurveyorFull || sigSurveyorFull.isEmpty()){ toast("Mohon bubuhkan tanda tangan Surveyor terlebih dahulu."); return; }
+  if(!sigPengajuFull || sigPengajuFull.isEmpty()){ toast("Mohon minta tanda tangan Penerima Manfaat terlebih dahulu."); return; }
 
   const btn = $("#submit-btn");
   btn.disabled = true;
@@ -1242,6 +1267,8 @@ async function submitAssessment(body){
     total_pengeluaran: calcTableTotal("pengeluaran"),
     pendapatan_per_kapita: perCapita,
     kategori_had_kifayah: cls.label,
+    ttd_petugas: sigSurveyorFull.toDataURL(),
+    ttd_pengaju: sigPengajuFull.toDataURL(),
     jenis_form: "full_assessment",
     status_review: "pending",
     submittedAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
@@ -2951,6 +2978,12 @@ function renderFullDetail(bodyEl, sub){
     ["Nama Surveyor", sub.nama_surveyor],
     ["Tanggal Survey", sub.tgl_survey],
   ]));
+  if(sub.ttd_petugas || sub.ttd_pengaju){
+    const sigGrid = el("div",{class:"dgrid"});
+    if(sub.ttd_petugas) sigGrid.appendChild(el("div",{}, el("div",{class:"k"},"Tanda Tangan Surveyor"), el("img",{src:sub.ttd_petugas, style:"max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;margin-top:4px;"})));
+    if(sub.ttd_pengaju) sigGrid.appendChild(el("div",{}, el("div",{class:"k"},"Tanda Tangan Penerima Manfaat"), el("img",{src:sub.ttd_pengaju, style:"max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;margin-top:4px;"})));
+    bodyEl.appendChild(el("div",{class:"dsection"}, el("h4",{},"Tanda Tangan"), sigGrid));
+  }
 }
 
 function renderRapidDetail(bodyEl, sub){
@@ -3173,9 +3206,32 @@ function drawFullAssessmentPDF(doc, sub){
   fields(STEPS[0].fields);
   y += 3;
 
-  // 2. IDENTITAS PENGAJU
+  // 2. IDENTITAS PENGAJU — tata letak 2 kolom supaya lebih ringkas (field pendek dipasangkan)
   section("2", "IDENTITAS PENGAJU");
-  fields(STEPS[1].fields);
+  y = ensureSpace(y, 10);
+  y = pdfFieldFull(doc, marginX, y, contentW, "NIK Pengaju", sub.nik);
+  y = ensureSpace(y, 10);
+  y = pdfFieldFull(doc, marginX, y, contentW, "Nama Pengaju", sub.nama_pengaju);
+  y = ensureSpace(y, 10);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Nama Panggilan", sub.nama_panggilan, "Agama", sub.agama);
+  y = ensureSpace(y, 10);
+  y = pdfFieldFull(doc, marginX, y, contentW, "Alamat (Jl / Kp)", sub.alamat_jalan);
+  y = ensureSpace(y, 10);
+  y = pdfFieldPair(doc, marginX, y, halfW, "RT", sub.alamat_rt, "RW", sub.alamat_rw);
+  y = ensureSpace(y, 10);
+  y = pdfFieldPair(doc, marginX, y, halfW, "No. Rumah", sub.alamat_no, "Kelurahan", sub.alamat_kel);
+  y = ensureSpace(y, 10);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Kecamatan", sub.alamat_kec, "Kota / Kabupaten", sub.alamat_kota);
+  y = ensureSpace(y, 10);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Provinsi", sub.alamat_prov, "No. Telepon", sub.telp);
+  y = ensureSpace(y, 20);
+  y = pdfLabel(doc, marginX, y, "Jenis Kelamin:");
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Laki-Laki","Perempuan"], (o)=> sub.jenis_kelamin===o) + 3;
+  y = ensureSpace(y, 10);
+  y = pdfFieldPair(doc, marginX, y, halfW, "Usia (Tahun)", sub.usia ? sub.usia+" th" : "-", "Muallaf", sub.is_muallaf ? `Ya, sejak ${sub.muallaf_tahun||"-"}` : "Tidak");
+  y = ensureSpace(y, 20);
+  y = pdfLabel(doc, marginX, y, "Status Pernikahan:");
+  y = pdfCheckboxGroup(doc, marginX, y, contentW, ["Lajang","Menikah","Janda","Duda"], (o)=> sub.status_nikah===o) + 3;
   y += 3;
 
   // 3. PENGHASILAN KELUARGA
@@ -3239,6 +3295,31 @@ function drawFullAssessmentPDF(doc, sub){
   fields(STEPS[9].fields);
   y = ensureSpace(y, 10);
   y = pdfFieldFull(doc, marginX, y, contentW, "Status di Dashboard Admin", badgeLabelText(statusOf(sub)));
+  y += 6;
+
+  // Tanda tangan (2 kolom): Surveyor & Penerima Manfaat
+  y = ensureSpace(y, 52);
+  const colW = contentW/2;
+  const leftX = marginX, rightX = marginX + colW + 4;
+  doc.setDrawColor(200,200,200);
+  doc.line(marginX, y, marginX+contentW, y); y += 6;
+  doc.setFont("helvetica","bold"); doc.setFontSize(9);
+  doc.setTextColor(15,15,15);
+  doc.text("Surveyor", leftX, y);
+  doc.text("Penerima Manfaat", rightX, y);
+  y += 4;
+  const sigY = y;
+  try{ if(sub.ttd_petugas) doc.addImage(sub.ttd_petugas, "PNG", leftX, sigY, 55, 24); } catch(e){}
+  try{ if(sub.ttd_pengaju) doc.addImage(sub.ttd_pengaju, "PNG", rightX, sigY, 55, 24); } catch(e){}
+  y = sigY + 26;
+  doc.setFont("helvetica","normal"); doc.setFontSize(8.3);
+  doc.setTextColor(60,60,60);
+  doc.text(`( ${sub.nama_surveyor || "-"} )`, leftX, y);
+  doc.text(`( ${sub.nama_pengaju || "-"} )`, rightX, y);
+  y += 4;
+  doc.text(sub.phone_surveyor ? `(${sub.phone_surveyor})` : "", leftX, y);
+  doc.text(sub.telp ? `(${sub.telp})` : "", rightX, y);
+  doc.setTextColor(15,15,15);
 }
 
 /* ---------------- PDF Rapid Assessment — mengikuti tata letak form kertas asli ---------------- */
