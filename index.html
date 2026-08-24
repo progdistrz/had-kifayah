@@ -494,7 +494,24 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
             allow read, create: if request.auth != null; // termasuk anonymous
           }
           match /assessments/{docId} {
-            allow create, read, update: if request.auth != null; // termasuk anonymous
+            allow create, update: if request.auth != null; // termasuk anonymous (surveyor & calon peserta)
+            // Baca dibatasi per hirarki jabatan (harus SAMA PERSIS dengan ROLE_HIERARCHY di index.html):
+            // - anonim (surveyor/calon peserta, token tanpa email) tetap boleh baca seperti sebelumnya
+            //   (dipakai fitur Riwayat/Daftar Review milik surveyor).
+            // - admin@progdist.erzet (Kepala Divisi): baca semua.
+            // - dept head + 2 bawahannya: hanya baca dokumen yang belum ada admin_status APAPUN
+            //   (masih di antrian, semua boleh lihat), ATAU yang admin_status-nya sudah ditentukan
+            //   oleh salah satu email dalam dept tsb (dirinya sendiri/dept head/bawahan lain di dept sama).
+            allow read: if request.auth != null && (
+              request.auth.token.email == null ||
+              request.auth.token.email == "admin@progdist.erzet" ||
+              (request.auth.token.email in ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"] &&
+                (!("admin_status" in resource.data) || resource.data.admin_signed_by in ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"])) ||
+              (request.auth.token.email in ["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"] &&
+                (!("admin_status" in resource.data) || resource.data.admin_signed_by in ["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"])) ||
+              (request.auth.token.email in ["pem@progdist.erzet","mujib@progdist.erzet","rafi@progdist.erzet"] &&
+                (!("admin_status" in resource.data) || resource.data.admin_signed_by in ["pem@progdist.erzet","mujib@progdist.erzet","rafi@progdist.erzet"]))
+            );
             allow delete: if request.auth != null && request.auth.token.email != null; // khusus admin
           }
           match /app_settings/{docId} {
@@ -551,6 +568,57 @@ if(!FIREBASE_NOT_CONFIGURED){
    "jenis_form"): full_assessment, rapid_assessment, community_development.
    Dashboard admin membaca semuanya dan memfilter per jenis lewat tab. */
 const COLLECTION = "assessments";
+
+/* ================================================================
+   HIRARKI AKSES DASHBOARD ADMIN
+   ----------------------------------------------------------------
+   Didaftarkan manual sesuai struktur organisasi. Tiga peran:
+   - "kepala_divisi": melihat SELURUH assessment yang masuk.
+   - "dept_head": melihat assessment miliknya sendiri + milik 2 bawahannya
+     (dicocokkan lewat field admin_signed_by — siapa yang menandatangani
+     sebagai Pemberi Tugas).
+   - "subordinate": HANYA melihat assessment yang sudah dia sendiri
+     tentukan statusnya (tanda tangani sebagai Pemberi Tugas).
+   Assessment yang BELUM ditentukan statusnya siapa pun (admin_status
+   belum ada) tetap terlihat oleh seluruh peran di hirarki ini, supaya
+   ada yang bisa mengambil & mereview — begitu salah satu bawahan
+   menentukan statusnya, assessment itu "menjadi miliknya" untuk tujuan
+   visibilitas (bawahan lain & dept lain tidak lagi melihatnya, kecuali
+   dept head/kepala divisi terkait).
+
+   PENTING: aturan yang SAMA PERSIS juga harus dipasang di Firestore
+   Security Rules (lihat komentar "FIREBASE CONFIG" di bawah) supaya
+   pembatasan ini benar-benar ditegakkan di server — filter di sini
+   hanya mengatur tampilan, bukan proteksi sesungguhnya. */
+const ROLE_HIERARCHY = {
+  "admin@progdist.erzet": { role:"kepala_divisi" },
+  "sosv@progdist.erzet": { role:"dept_head", dept:"Dept. Sosv", nama:"US", subordinates:["prcb@progdist.erzet","sosv.admin@progdist.erzet"] },
+  "sch@progdist.erzet": { role:"dept_head", dept:"Dept. Sch", nama:"SN", subordinates:["iis@progdist.erzet","diki@progdist.erzet"] },
+  "pem@progdist.erzet": { role:"dept_head", dept:"Dept. PEM", nama:"BK", subordinates:["mujib@progdist.erzet","rafi@progdist.erzet"] },
+  "prcb@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv" },
+  "sosv.admin@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv" },
+  "iis@progdist.erzet": { role:"subordinate", dept:"Dept. Sch" },
+  "diki@progdist.erzet": { role:"subordinate", dept:"Dept. Sch" },
+  "mujib@progdist.erzet": { role:"subordinate", dept:"Dept. PEM" },
+  "rafi@progdist.erzet": { role:"subordinate", dept:"Dept. PEM" },
+};
+function getRoleInfo(email){
+  if(!email) return null;
+  return ROLE_HIERARCHY[email.toLowerCase()] || null;
+}
+function getVisibleSubmissionsForRole(list, email){
+  const info = getRoleInfo(email);
+  if(!info) return [];
+  if(info.role === "kepala_divisi") return list;
+  if(info.role === "dept_head"){
+    const allowed = new Set([...info.subordinates.map(s=>s.toLowerCase()), email.toLowerCase()]);
+    return list.filter(s => !s.admin_status || (s.admin_signed_by && allowed.has(s.admin_signed_by.toLowerCase())));
+  }
+  if(info.role === "subordinate"){
+    return list.filter(s => !s.admin_status || (s.admin_signed_by && s.admin_signed_by.toLowerCase() === email.toLowerCase()));
+  }
+  return [];
+}
 
 /* ================================================================
    UTIL
@@ -2668,6 +2736,19 @@ let SELECTED_IDS = new Set();
 
 let ADMIN_SIGNATURE = null;
 function renderDashboard(shell, user){
+  const roleInfo = getRoleInfo(user.email);
+  if(!roleInfo){
+    shell.innerHTML = "";
+    shell.appendChild(el("div",{class:"setup-banner"},
+      `Akun "${user.email}" belum terdaftar dalam struktur akses dashboard. Hubungi Kepala Divisi untuk didaftarkan terlebih dahulu.`
+    ));
+    shell.appendChild(el("button",{class:"btn btn-ghost", style:"margin-top:12px;", onclick:doLogout}, "Keluar"));
+    return;
+  }
+  const roleLabel = roleInfo.role === "kepala_divisi" ? "Kepala Divisi — melihat seluruh assessment"
+    : roleInfo.role === "dept_head" ? `${roleInfo.dept} (${roleInfo.nama}) — melihat data Anda & ${roleInfo.subordinates.length} bawahan`
+    : `${roleInfo.dept} — hanya melihat assessment yang sudah Anda tentukan statusnya`;
+
   SELECTED_IDS = new Set();
   ADMIN_SIGNATURE = null;
   if(auth.currentUser){
@@ -2677,7 +2758,11 @@ function renderDashboard(shell, user){
   }
   shell.innerHTML = "";
   shell.appendChild(el("div",{class:"dash-head"},
-    el("div",{}, el("h1",{},"Dashboard Assessment"), el("div",{style:"color:var(--ink-muted);font-size:13px;margin-top:4px;"}, "Masuk sebagai " + user.email)),
+    el("div",{},
+      el("h1",{},"Dashboard Assessment"),
+      el("div",{style:"color:var(--ink-muted);font-size:13px;margin-top:4px;"}, "Masuk sebagai " + user.email),
+      el("div",{style:"color:var(--primary);font-size:12.5px;font-weight:700;margin-top:2px;"}, roleLabel),
+    ),
     el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan")
   ));
   shell.appendChild(el("div",{id:"settings-panel"}));
@@ -2720,8 +2805,10 @@ function renderDashboard(shell, user){
     // "awaiting_review" (menunggu surveyor) & "surveyor_reviewed" (sudah direview, belum disubmit
     // massal) sengaja belum ditampilkan ke Admin — sesuai alur: baru masuk dashboard setelah
     // surveyor menekan "Kirim ke Admin" / "Submit Semua ke Admin".
-    ALL_SUBMISSIONS = snap.docs.map(d=>({ id:d.id, ...d.data() }))
+    const visibleStatus = snap.docs.map(d=>({ id:d.id, ...d.data() }))
       .filter(s => s.status_review !== "awaiting_review" && s.status_review !== "surveyor_reviewed");
+    // Batasi lagi sesuai hirarki jabatan (kepala divisi/dept head/bawahan) — lihat ROLE_HIERARCHY.
+    ALL_SUBMISSIONS = getVisibleSubmissionsForRole(visibleStatus, user.email);
     populateDynamicFilters();
     renderStats(statRow);
     renderTable();
