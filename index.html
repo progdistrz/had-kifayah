@@ -531,12 +531,13 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
             // Baca dibatasi per hirarki jabatan (harus SAMA PERSIS dengan ROLE_HIERARCHY di index.html):
             // - anonim (surveyor/calon peserta, token tanpa email) tetap boleh baca seperti sebelumnya
             //   (dipakai fitur Riwayat/Daftar Review milik surveyor).
-            // - admin@progdist.erzet (Kepala Divisi): baca semua.
+            // - progdist@admin.erzet (Admin Pusat/developer) & admin@progdist.erzet (Kepala Divisi): baca semua.
             // - dept head + 2 bawahannya: baca dokumen "antrian terbuka", ATAU yang assigned_by
             //   (ditugaskan lewat Link Tugas) / admin_signed_by (sudah direview) berasal dari
             //   salah satu email dalam dept yang sama.
             allow read: if request.auth != null && (
               !isRealAdmin() ||
+              request.auth.token.email == "progdist@admin.erzet" ||
               request.auth.token.email == "admin@progdist.erzet" ||
               (request.auth.token.email in ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"] &&
                 deptCanSee(resource.data, ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"])) ||
@@ -628,6 +629,7 @@ const COLLECTION = "assessments";
    Tangan Saya" (tersimpan per akun di koleksi admin_profiles). "nama" di bawah ini
    hanya dipakai sbg fallback singkat untuk Kepala Dept sebelum mereka mengisi sendiri. */
 const ROLE_HIERARCHY = {
+  "progdist@admin.erzet": { role:"super_admin", nama:"Admin Pusat" },
   "admin@progdist.erzet": { role:"kepala_divisi", nama:"Kepala Divisi" },
   "sosv@progdist.erzet": { role:"dept_head", dept:"Dept. Sosv", nama:"US", subordinates:["prcb@progdist.erzet","sosv.admin@progdist.erzet"] },
   "sch@progdist.erzet": { role:"dept_head", dept:"Dept. Sch", nama:"SN", subordinates:["iis@progdist.erzet","diki@progdist.erzet"] },
@@ -648,7 +650,7 @@ function getRoleInfo(email){
 function getDeptAbbrFromEmail(email){
   const info = getRoleInfo(email);
   if(!info) return null;
-  if(info.role === "kepala_divisi") return "PUSAT";
+  if(info.role === "kepala_divisi" || info.role === "super_admin") return "PUSAT";
   const m = (info.dept || "").match(/Dept\.?\s*(\S+)/i);
   return m ? m[1].toUpperCase() : (info.dept || null);
 }
@@ -668,7 +670,8 @@ function isOpenQueueItem(s){
 function getVisibleSubmissionsForRole(list, email){
   const info = getRoleInfo(email);
   if(!info) return [];
-  if(info.role === "kepala_divisi") return list;
+  // Admin Pusat (developer web) & Kepala Divisi sama-sama melihat SELURUH assessment.
+  if(info.role === "kepala_divisi" || info.role === "super_admin") return list;
   const allowed = info.role === "dept_head"
     ? new Set([...info.subordinates.map(s=>s.toLowerCase()), email.toLowerCase()])
     : new Set([email.toLowerCase()]);
@@ -2879,7 +2882,8 @@ function renderDashboard(shell, user){
     return;
   }
   CURRENT_VIEWER_ROLE = roleInfo;
-  const roleLabel = roleInfo.role === "kepala_divisi" ? "Kepala Divisi — melihat seluruh assessment"
+  const roleLabel = roleInfo.role === "super_admin" ? "Admin Pusat (Developer) — melihat & dapat mengedit seluruh data"
+    : roleInfo.role === "kepala_divisi" ? "Kepala Divisi — melihat seluruh assessment"
     : roleInfo.role === "dept_head" ? `${roleInfo.dept} (${roleInfo.nama}) — melihat data Anda & ${roleInfo.subordinates.length} bawahan`
     : `${roleInfo.dept} — hanya melihat assessment yang sudah Anda tentukan statusnya`;
 
@@ -3037,7 +3041,7 @@ function renderFilterPopupBody(){
   body.appendChild(filterSelectField("Bulan","filter-bulan", [["","Semua Bulan"]], ADMIN_FILTERS.bulan, v=>ADMIN_FILTERS.bulan=v));
   body.appendChild(filterSelectField("Kategori Program","filter-kategori", [["","Semua Kategori Program"]], ADMIN_FILTERS.kategori, v=>ADMIN_FILTERS.kategori=v));
 
-  if(CURRENT_VIEWER_ROLE && CURRENT_VIEWER_ROLE.role === "kepala_divisi"){
+  if(CURRENT_VIEWER_ROLE && (CURRENT_VIEWER_ROLE.role === "kepala_divisi" || CURRENT_VIEWER_ROLE.role === "super_admin")){
     body.appendChild(filterSelectField("Departemen","filter-dept",
       [["","Semua Departemen"],["SOSV","SOSV"],["SCH","SCH"],["PEM","PEM"]],
       ADMIN_FILTERS.dept, v=>ADMIN_FILTERS.dept=v));
@@ -3307,7 +3311,7 @@ function computeAssignmentBadge(sub){
   if(!email || !CURRENT_VIEWER_ROLE){
     return el("span",{class:"hint"}, "Belum ditugaskan");
   }
-  if(CURRENT_VIEWER_ROLE.role === "kepala_divisi"){
+  if(CURRENT_VIEWER_ROLE.role === "kepala_divisi" || CURRENT_VIEWER_ROLE.role === "super_admin"){
     const abbr = getDeptAbbrFromEmail(email);
     return el("span",{class:"dept-badge"}, abbr || "-");
   }
@@ -3320,7 +3324,7 @@ function renderTable(){
   updateFilterButtonLabel();
   const flat = getFilteredFlatList();
   const rows = groupSubmissions(flat);
-  const badgeColLabel = CURRENT_VIEWER_ROLE && CURRENT_VIEWER_ROLE.role === "kepala_divisi" ? "Departemen" : "Pemberi Tugas";
+  const badgeColLabel = CURRENT_VIEWER_ROLE && (CURRENT_VIEWER_ROLE.role === "kepala_divisi" || CURRENT_VIEWER_ROLE.role === "super_admin") ? "Departemen" : "Pemberi Tugas";
 
   tableWrap.innerHTML = "";
   if(rows.length === 0){
@@ -3518,6 +3522,7 @@ function openDetail(sub){
   if(sub.jenis_form === "rapid_assessment") renderRapidDetail(bodyEl, sub);
   else renderFullDetail(bodyEl, sub);
 
+  const isSuperAdmin = CURRENT_VIEWER_ROLE && CURRENT_VIEWER_ROLE.role === "super_admin";
   const actionSection = el("div",{class:"dsection"},
     el("h4",{},"Tindakan Admin"),
     el("div",{class:"admin-action-bar"},
@@ -3525,11 +3530,71 @@ function openDetail(sub){
       el("button",{class:"btn btn-accent", onclick:()=>updateStatus(sub,"attention")}, "Perlu Perhatian Khusus"),
       el("button",{class:"btn btn-danger", onclick:()=>updateStatus(sub,"rejected")}, "Tandai Tidak Layak"),
       el("button",{class:"btn btn-ghost", onclick:()=>generateAssessmentPDF(sub)}, "🖨️ Cetak PDF"),
+      isSuperAdmin ? el("button",{class:"btn btn-accent", onclick:()=>openEditDataDrawer(sub)}, "✏️ Edit Data (Admin Pusat)") : null,
       el("button",{class:"btn btn-danger", onclick:()=>deleteSubmission(sub)}, "🗑️ Hapus Data"),
     )
   );
   bodyEl.appendChild(actionSection);
 
+  document.body.appendChild(backdrop);
+  document.body.appendChild(drawer);
+}
+/* ---------------- Edit Data mentah — khusus Admin Pusat (developer web) ----------------
+   Admin Pusat bisa mengedit SELURUH field inputan surveyor secara langsung, apa pun jenis
+   formnya (Full/Rapid). Nilai berupa teks/angka ditampilkan sbg input biasa; nilai berupa
+   larik/objek (tabel dinamis, kategori asnaf, dst) ditampilkan sbg JSON yang bisa disunting.
+   Field sistem (status, tanda tangan, metadata pengiriman) sengaja tidak ditampilkan di sini
+   — tetap dikelola lewat tombol Tindakan Admin yang sudah ada supaya tidak tumpang tindih. */
+const EDIT_DATA_SKIP_FIELDS = new Set([
+  "id","submittedAt","jenis_form","status_review","assigned_by","session_id",
+  "admin_status","admin_signature","admin_signed_by","admin_signed_by_nama","admin_signed_by_telp","admin_signed_at",
+  "ttd_petugas","ttd_pengaju","petugas_signature","batch_id","reviewed_at","reviewed_by",
+]);
+function openEditDataDrawer(sub){
+  const backdrop = el("div",{class:"drawer-backdrop", onclick:closeDetail});
+  const drawer = el("div",{class:"drawer"});
+  drawer.appendChild(el("div",{class:"drawer-head"}, el("h3",{}, "Edit Data — " + (sub.nama_pengaju || sub.nama || "-")), el("button",{onclick:closeDetail}, "✕")));
+  const body = el("div",{class:"drawer-body"});
+  body.appendChild(el("div",{class:"setup-banner"}, "⚠️ Mode Admin Pusat: seluruh field di bawah ini adalah data mentah tersimpan di Firestore. Nilai berupa daftar/tabel ditulis dalam format JSON — pastikan formatnya tetap valid sebelum menyimpan."));
+
+  const inputs = {};
+  Object.keys(sub).sort().forEach(key=>{
+    if(EDIT_DATA_SKIP_FIELDS.has(key)) return;
+    const val = sub[key];
+    const isComplex = typeof val === "object" && val !== null;
+    const displayVal = isComplex ? JSON.stringify(val, null, 2) : (val==null ? "" : String(val));
+    const wrap = el("div",{class:"field"});
+    wrap.appendChild(el("label",{class:"q"}, key));
+    const inputEl = isComplex
+      ? Object.assign(el("textarea",{}), {value: displayVal, style:"min-height:90px;font-family:var(--font-mono);font-size:12px;"})
+      : el("input",{type:"text", value: displayVal});
+    wrap.appendChild(inputEl);
+    inputs[key] = { el: inputEl, isComplex };
+    body.appendChild(wrap);
+  });
+
+  body.appendChild(el("button",{class:"btn btn-primary", style:"width:100%;justify-content:center;margin-top:8px;", onclick: async ()=>{
+    const updatePayload = {};
+    let hasError = false;
+    Object.entries(inputs).forEach(([key, {el:inputEl, isComplex}])=>{
+      if(hasError) return;
+      const raw = inputEl.value;
+      if(isComplex){
+        try{ updatePayload[key] = JSON.parse(raw); }
+        catch(e){ hasError = true; toast(`Format JSON tidak valid pada field "${key}".`); }
+      } else {
+        updatePayload[key] = raw;
+      }
+    });
+    if(hasError) return;
+    try{
+      await db.collection(COLLECTION).doc(sub.id).update(updatePayload);
+      toast("Data berhasil diperbarui oleh Admin Pusat.");
+      closeDetail();
+    } catch(err){ toast("Gagal menyimpan perubahan: " + friendlyFirestoreError(err)); }
+  }}, "Simpan Perubahan"));
+
+  drawer.appendChild(body);
   document.body.appendChild(backdrop);
   document.body.appendChild(drawer);
 }
