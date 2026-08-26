@@ -1061,7 +1061,24 @@ function blankRow(kind){
 /* ================================================================
    SURVEY PAGE
    ================================================================ */
+/* Halaman penahan jika ada yang mencoba membuka #/survey/full atau #/survey/rapid secara
+   langsung tanpa lewat Link Penugasan — inilah penyebab data "Belum Ditugaskan" muncul di
+   dashboard Kepala Divisi. Sejak diberlakukan, akses langsung tanpa ASSIGNED_BY diblokir di
+   sini supaya SETIAP assessment baru pasti tertaut ke pemberi tugas yang jelas. */
+function renderNeedsAssignmentScreen(app, formName){
+  const wrap = el("div",{});
+  wrap.appendChild(topbar("public"));
+  const shell = el("div",{class:"shell"});
+  shell.appendChild(el("div",{class:"landing"},
+    el("div",{class:"eyebrow", style:"color:var(--danger);font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;"}, "Link Penugasan Diperlukan"),
+    el("h1",{style:"font-size:24px;"}, `Formulir ${formName} tidak bisa diakses langsung`),
+    el("p",{class:"lede"}, "Anda perlu membuka formulir ini lewat Link Penugasan yang dibagikan oleh pejabat/atasan Anda. Hubungi mereka untuk mendapatkan link yang benar.")
+  ));
+  wrap.appendChild(shell);
+  app.appendChild(wrap);
+}
 function renderSurveyPage(app){
+  if(!ASSIGNED_BY){ renderNeedsAssignmentScreen(app, "Full Assessment"); return; }
   resetFormState();
   ensureAnonAuth();
   const wrap = el("div",{});
@@ -1575,6 +1592,14 @@ function renderRapidPage(app){
   // sedang berjalan (termasuk link yang sudah dibagikan & progres reviewnya) harus tetap ada
   // selama tab browser belum ditutup/dimuat ulang. Untuk mengakhiri sesi, surveyor memakai
   // tombol "Akhiri Sesi" di kartu Data Program (renderProgramBar), yang me-reset secara eksplisit.
+  const savedRef = loadActiveSessionRef();
+  if(!ASSIGNED_BY && !rapidSession && !savedRef){
+    // Tidak ada Link Penugasan DAN tidak sedang/pernah melanjutkan sesi apa pun — jangan
+    // izinkan memulai sesi baru tanpa penugasan yang jelas (inilah sumber data "Belum
+    // Ditugaskan" di dashboard Kepala Divisi).
+    renderNeedsAssignmentScreen(app, "Rapid Assessment");
+    return;
+  }
   ensureAnonAuth();
   const wrap = el("div",{});
   wrap.appendChild(topbar(false));
@@ -1587,7 +1612,6 @@ function renderRapidPage(app){
     renderRapidBody(shell);
     return;
   }
-  const savedRef = loadActiveSessionRef();
   if(savedRef && !FIREBASE_NOT_CONFIGURED){
     // Memori JS sudah hilang (mis. halaman dimuat ulang) tapi ada jejak sesi tersimpan —
     // tawarkan untuk memuat ulang sesi tsb dari Firestore alih-alih langsung mulai dari nol.
@@ -2836,6 +2860,7 @@ function doLogout(){ if(auth) auth.signOut().then(()=>location.hash = "#/"); }
 let ALL_SUBMISSIONS = [];
 let unsubscribeSnapshot = null;
 let SELECTED_IDS = new Set();
+let ADMIN_FILTERS = { search:"", jenis:"", status:"", bulan:"", kategori:"", dept:"", locProv:"", locKota:"", locKec:"", locDesa:"" };
 
 let ADMIN_SIGNATURE = null;
 let ADMIN_NAME = null;
@@ -2856,6 +2881,7 @@ function renderDashboard(shell, user){
     : `${roleInfo.dept} — hanya melihat assessment yang sudah Anda tentukan statusnya`;
 
   SELECTED_IDS = new Set();
+  ADMIN_FILTERS = { search:"", jenis:"", status:"", bulan:"", kategori:"", dept:"", locProv:"", locKota:"", locKec:"", locDesa:"" };
   ADMIN_SIGNATURE = null;
   ADMIN_NAME = null;
   if(auth.currentUser){
@@ -2879,29 +2905,30 @@ function renderDashboard(shell, user){
   ));
   shell.appendChild(el("div",{id:"settings-panel"}));
 
+  const myLink = location.origin + location.pathname + "#/tugas/" + encodeURIComponent(user.email);
+  shell.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
+    el("div",{class:"step-head"},
+      el("div",{class:"eyebrow"}, "Link Penugasan"),
+      el("h2",{style:"font-size:17px;"}, "Bagikan ke Surveyor"),
+      el("div",{class:"desc"}, "Formulir apa pun (Full/Rapid Assessment) yang diisi surveyor lewat link ini otomatis tercatat untuk Anda — langsung terlihat di dashboard Anda, atasan Anda, dan Kepala Divisi, tanpa perlu direview dulu. Departemen lain tidak akan melihatnya.")
+    ),
+    el("div",{class:"link-box"},
+      el("input",{type:"text", readonly:"readonly", value: myLink, id:"tugas-link-input", onclick:(e)=>e.target.select()}),
+      el("button",{class:"btn btn-accent", type:"button", onclick:()=>{
+        (navigator.clipboard ? navigator.clipboard.writeText(myLink) : Promise.reject()).then(()=>toast("Link disalin.")).catch(()=>{
+          const inp = $("#tugas-link-input"); inp.select(); document.execCommand("copy"); toast("Link disalin.");
+        });
+      }}, "Salin Link")
+    )
+  ));
+
   const statRow = el("div",{class:"stat-row"});
   shell.appendChild(statRow);
 
   const toolbar = el("div",{class:"toolbar"},
-    el("input",{type:"search", id:"search-input", placeholder:"Cari nama, NIK, atau surveyor…", oninput: renderTable}),
-    el("select",{id:"filter-jenis", onchange: renderTable},
-      el("option",{value:""},"Semua Jenis Form"),
-      el("option",{value:"full_assessment"},"Full Assessment"),
-      el("option",{value:"rapid_assessment"},"Rapid Assessment"),
-    ),
-    el("select",{id:"filter-status", onchange: renderTable},
-      el("option",{value:""},"Semua Status"),
-      el("option",{value:"pending"},"Menunggu Review"),
-      el("option",{value:"approved"},"Layak Dibantu"),
-      el("option",{value:"attention"},"Perlu Perhatian Khusus"),
-      el("option",{value:"rejected"},"Tidak Layak"),
-    ),
-    el("select",{id:"filter-bulan", onchange: renderTable}, el("option",{value:""},"Semua Bulan")),
-    el("select",{id:"filter-kategori", onchange: renderTable}, el("option",{value:""},"Semua Kategori Program")),
-    el("button",{class:"btn btn-ghost btn-sm", type:"button", onclick: resetFilters}, "↺ Reset Filter"),
+    el("button",{id:"filter-toggle-btn", class:"btn btn-ghost", type:"button", onclick: openFilterPopup}, "🔍 Filter"),
   );
   shell.appendChild(toolbar);
-  shell.appendChild(renderLocationFilterRow());
 
   const bulkBar = el("div",{id:"bulk-action-bar"});
   shell.appendChild(bulkBar);
@@ -2958,42 +2985,104 @@ function monthLabel(key){
   const [y,m] = key.split("-");
   return `${MONTH_NAMES_ID[parseInt(m,10)-1]} ${y}`;
 }
+/* ---------------- Popup Filter (satu tombol, semua kategori filter di dalamnya) ---------------- */
+function countActiveFilters(){
+  return Object.values(ADMIN_FILTERS).filter(v=>v && v !== "").length;
+}
+function updateFilterButtonLabel(){
+  const btn = $("#filter-toggle-btn");
+  if(!btn) return;
+  const n = countActiveFilters();
+  btn.textContent = n>0 ? `🔍 Filter (${n})` : "🔍 Filter";
+}
+function openFilterPopup(){
+  const backdrop = el("div",{class:"drawer-backdrop", onclick:closeDetail});
+  const drawer = el("div",{class:"drawer", id:"filter-popup-drawer"});
+  drawer.appendChild(el("div",{class:"drawer-head"}, el("h3",{},"Filter Data"), el("button",{onclick:closeDetail}, "✕")));
+  drawer.appendChild(el("div",{class:"drawer-body", id:"filter-popup-body"}));
+  document.body.appendChild(backdrop);
+  document.body.appendChild(drawer);
+  renderFilterPopupBody();
+}
+function filterSelectField(label, id, options, currentVal, onChange){
+  const sel = el("select",{id, style:"width:100%;"});
+  options.forEach(([val,txt])=> sel.appendChild(el("option",{value:val, selected: val===currentVal?"selected":null}, txt)));
+  sel.addEventListener("change", ()=>{ onChange(sel.value); updateFilterButtonLabel(); renderTable(); });
+  return el("div",{class:"field-tight"}, el("label",{}, label), sel);
+}
+function renderFilterPopupBody(){
+  const body = $("#filter-popup-body");
+  if(!body) return;
+  body.innerHTML = "";
+
+  body.appendChild(el("div",{class:"field-tight"},
+    el("label",{}, "Pencarian"),
+    el("input",{type:"search", id:"search-input", value: ADMIN_FILTERS.search, placeholder:"Cari nama, NIK, atau surveyor…",
+      oninput:(e)=>{ ADMIN_FILTERS.search = e.target.value; updateFilterButtonLabel(); renderTable(); }})
+  ));
+
+  body.appendChild(filterSelectField("Jenis Form","filter-jenis",
+    [["","Semua Jenis Form"],["full_assessment","Full Assessment"],["rapid_assessment","Rapid Assessment"]],
+    ADMIN_FILTERS.jenis, v=>ADMIN_FILTERS.jenis=v));
+
+  body.appendChild(filterSelectField("Status","filter-status",
+    [["","Semua Status"],["pending","Menunggu Review"],["approved","Layak Dibantu"],["attention","Perlu Perhatian Khusus"],["rejected","Tidak Layak"]],
+    ADMIN_FILTERS.status, v=>ADMIN_FILTERS.status=v));
+
+  body.appendChild(filterSelectField("Bulan","filter-bulan", [["","Semua Bulan"]], ADMIN_FILTERS.bulan, v=>ADMIN_FILTERS.bulan=v));
+  body.appendChild(filterSelectField("Kategori Program","filter-kategori", [["","Semua Kategori Program"]], ADMIN_FILTERS.kategori, v=>ADMIN_FILTERS.kategori=v));
+
+  if(CURRENT_VIEWER_ROLE && CURRENT_VIEWER_ROLE.role === "kepala_divisi"){
+    body.appendChild(filterSelectField("Departemen","filter-dept",
+      [["","Semua Departemen"],["SOSV","SOSV"],["SCH","SCH"],["PEM","PEM"]],
+      ADMIN_FILTERS.dept, v=>ADMIN_FILTERS.dept=v));
+  }
+
+  body.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Lokasi"), renderLocationFilterFields()));
+
+  body.appendChild(el("div",{style:"display:flex;gap:10px;margin-top:18px;"},
+    el("button",{class:"btn btn-ghost", type:"button", onclick: resetFilters}, "↺ Reset Filter"),
+    el("button",{class:"btn btn-primary", type:"button", style:"margin-left:auto;", onclick: closeDetail}, "Terapkan")
+  ));
+
+  populateDynamicFilters();
+}
 function populateDynamicFilters(){
   const bulanSel = $("#filter-bulan");
   if(bulanSel){
-    const cur = bulanSel.value;
     const months = Array.from(new Set(ALL_SUBMISSIONS.map(monthKeyOf).filter(Boolean))).sort().reverse();
     bulanSel.innerHTML = "";
     bulanSel.appendChild(el("option",{value:""},"Semua Bulan"));
     months.forEach(m=> bulanSel.appendChild(el("option",{value:m}, monthLabel(m))));
-    if(months.includes(cur)) bulanSel.value = cur;
+    if(months.includes(ADMIN_FILTERS.bulan)) bulanSel.value = ADMIN_FILTERS.bulan;
   }
   const katSel = $("#filter-kategori");
   if(katSel){
-    const cur = katSel.value;
     const kats = Array.from(new Set(ALL_SUBMISSIONS.map(s=>s.program_kategori).filter(Boolean))).sort();
     katSel.innerHTML = "";
     katSel.appendChild(el("option",{value:""},"Semua Kategori Program"));
     kats.forEach(k=> katSel.appendChild(el("option",{value:k}, k)));
-    if(kats.includes(cur)) katSel.value = cur;
+    if(kats.includes(ADMIN_FILTERS.kategori)) katSel.value = ADMIN_FILTERS.kategori;
   }
 }
 
 /* ---------------- Filter: Lokasi bertingkat (pakai API wilayah yang sama dengan formulir) ---------------- */
-function renderLocationFilterRow(){
+function renderLocationFilterFields(){
+  const wrap = el("div",{});
   const selProv = wilayahSelect("filter-loc-prov", "Semua Provinsi");
   const selKota = wilayahSelect("filter-loc-kota", "Semua Kota/Kab.");
   const selKec = wilayahSelect("filter-loc-kec", "Semua Kecamatan");
   const selDesa = wilayahSelect("filter-loc-desa", "Semua Desa/Kelurahan");
-  selProv.disabled = false;
-  selKota.disabled = false; selKec.disabled = false; selDesa.disabled = false;
+  [selProv,selKota,selKec,selDesa].forEach(s=>{ s.disabled=false; s.style.width="100%"; s.style.marginBottom="8px"; });
 
   fetchWilayah("provinces.json").then(list=>{
     resetWilayahSelect(selProv, "Semua Provinsi", false);
     list.forEach(p=> selProv.appendChild(el("option",{value:p.name, "data-id":p.id}, p.name)));
+    if(ADMIN_FILTERS.locProv) selProv.value = ADMIN_FILTERS.locProv;
   }).catch(()=> resetWilayahSelect(selProv, "Gagal memuat", true));
 
   selProv.addEventListener("change", async ()=>{
+    ADMIN_FILTERS.locProv = selProv.value; ADMIN_FILTERS.locKota = ""; ADMIN_FILTERS.locKec = ""; ADMIN_FILTERS.locDesa = "";
     resetWilayahSelect(selKota, "Semua Kota/Kab.", false);
     resetWilayahSelect(selKec, "Semua Kecamatan", false);
     resetWilayahSelect(selDesa, "Semua Desa/Kelurahan", false);
@@ -3004,9 +3093,10 @@ function renderLocationFilterRow(){
         list.forEach(r=> selKota.appendChild(el("option",{value:r.name, "data-id":r.id}, r.name)));
       } catch(e){ /* biarkan tetap "Semua Kota/Kab." jika gagal */ }
     }
-    renderTable();
+    updateFilterButtonLabel(); renderTable();
   });
   selKota.addEventListener("change", async ()=>{
+    ADMIN_FILTERS.locKota = selKota.value; ADMIN_FILTERS.locKec = ""; ADMIN_FILTERS.locDesa = "";
     resetWilayahSelect(selKec, "Semua Kecamatan", false);
     resetWilayahSelect(selDesa, "Semua Desa/Kelurahan", false);
     const kotaId = selKota.selectedOptions[0]?.dataset.id;
@@ -3016,9 +3106,10 @@ function renderLocationFilterRow(){
         list.forEach(d=> selKec.appendChild(el("option",{value:d.name, "data-id":d.id}, d.name)));
       } catch(e){}
     }
-    renderTable();
+    updateFilterButtonLabel(); renderTable();
   });
   selKec.addEventListener("change", async ()=>{
+    ADMIN_FILTERS.locKec = selKec.value; ADMIN_FILTERS.locDesa = "";
     resetWilayahSelect(selDesa, "Semua Desa/Kelurahan", false);
     const kecId = selKec.selectedOptions[0]?.dataset.id;
     if(kecId){
@@ -3027,14 +3118,12 @@ function renderLocationFilterRow(){
         list.forEach(v=> selDesa.appendChild(el("option",{value:v.name}, v.name)));
       } catch(e){}
     }
-    renderTable();
+    updateFilterButtonLabel(); renderTable();
   });
-  selDesa.addEventListener("change", renderTable);
+  selDesa.addEventListener("change", ()=>{ ADMIN_FILTERS.locDesa = selDesa.value; updateFilterButtonLabel(); renderTable(); });
 
-  return el("div",{class:"toolbar", style:"margin-top:-8px;"},
-    el("span",{class:"hint", style:"align-self:center;"}, "Filter Lokasi:"),
-    selProv, selKota, selKec, selDesa,
-  );
+  wrap.appendChild(selProv); wrap.appendChild(selKota); wrap.appendChild(selKec); wrap.appendChild(selDesa);
+  return wrap;
 }
 function matchesLoc(s, level, name){
   const nameLC = name.toLowerCase();
@@ -3047,17 +3136,9 @@ function matchesLoc(s, level, name){
   return (fieldsMap[level]||[]).some(v=> v && v.toLowerCase().includes(nameLC));
 }
 function resetFilters(){
-  const searchEl = $("#search-input");
-  if(searchEl) searchEl.value = "";
-  ["filter-jenis","filter-status","filter-bulan","filter-kategori","filter-loc-prov"].forEach(id=>{
-    const elx = $("#"+id);
-    if(elx) elx.value = "";
-  });
-  // Kota/Kec/Desa isinya mengikuti provinsi yang dipilih sebelumnya — kembalikan ke placeholder kosong.
-  const kota = $("#filter-loc-kota"), kec = $("#filter-loc-kec"), desa = $("#filter-loc-desa");
-  if(kota) resetWilayahSelect(kota, "Semua Kota/Kab.", false);
-  if(kec) resetWilayahSelect(kec, "Semua Kecamatan", false);
-  if(desa) resetWilayahSelect(desa, "Semua Desa/Kelurahan", false);
+  ADMIN_FILTERS = { search:"", jenis:"", status:"", bulan:"", kategori:"", dept:"", locProv:"", locKota:"", locKec:"", locDesa:"" };
+  renderFilterPopupBody();
+  updateFilterButtonLabel();
   renderTable();
 }
 
@@ -3091,23 +3172,6 @@ async function toggleSettingsPanel(){
             el("div",{class:"mono", style:"font-size:13px;font-weight:700;color:var(--primary-dark);"}, info.telp || "-")
           )
         )
-      )
-    ));
-
-    const myLink = location.origin + location.pathname + "#/tugas/" + encodeURIComponent(auth.currentUser.email);
-    box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
-      el("div",{class:"step-head"},
-        el("div",{class:"eyebrow"}, "Pengaturan"),
-        el("h2",{style:"font-size:18px;"}, "Link Tugas Saya"),
-        el("div",{class:"desc"}, "Bagikan link ini kepada Surveyor yang Anda tugaskan. Formulir apa pun (Full/Rapid Assessment) yang mereka isi lewat link ini akan otomatis tercatat untuk Anda — langsung terlihat di dashboard Anda, atasan Anda, dan Kepala Divisi, tanpa perlu direview dulu. Departemen lain tidak akan melihatnya.")
-      ),
-      el("div",{class:"link-box"},
-        el("input",{type:"text", readonly:"readonly", value: myLink, id:"tugas-link-input", onclick:(e)=>e.target.select()}),
-        el("button",{class:"btn btn-accent", type:"button", onclick:()=>{
-          (navigator.clipboard ? navigator.clipboard.writeText(myLink) : Promise.reject()).then(()=>toast("Link disalin.")).catch(()=>{
-            const inp = $("#tugas-link-input"); inp.select(); document.execCommand("copy"); toast("Link disalin.");
-          });
-        }}, "Salin Link")
       )
     ));
 
@@ -3203,28 +3267,22 @@ function badgeFor(status){
 }
 
 function getFilteredFlatList(){
-  const q = ($("#search-input")?.value || "").toLowerCase();
-  const statusFilter = $("#filter-status")?.value || "";
-  const jenisFilter = $("#filter-jenis")?.value || "";
-  const bulanFilter = $("#filter-bulan")?.value || "";
-  const kategoriFilter = $("#filter-kategori")?.value || "";
-  const locProv = $("#filter-loc-prov")?.value || "";
-  const locKota = $("#filter-loc-kota")?.value || "";
-  const locKec = $("#filter-loc-kec")?.value || "";
-  const locDesa = $("#filter-loc-desa")?.value || "";
+  const f = ADMIN_FILTERS;
+  const q = (f.search || "").toLowerCase();
 
   return ALL_SUBMISSIONS.filter(s=>{
     const surveyorName = s.nama_surveyor || s.nama_petugas_ttd || s.program_petugas || "";
     const matchQ = !q || [s.nama_pengaju, s.nik, surveyorName].join(" ").toLowerCase().includes(q);
-    const matchStatus = !statusFilter || statusOf(s) === statusFilter;
-    const matchJenis = !jenisFilter || s.jenis_form === jenisFilter;
-    const matchBulan = !bulanFilter || monthKeyOf(s) === bulanFilter;
-    const matchKategori = !kategoriFilter || s.program_kategori === kategoriFilter;
-    const matchProv = !locProv || matchesLoc(s,"prov",locProv);
-    const matchKota = !locKota || matchesLoc(s,"kota",locKota);
-    const matchKec = !locKec || matchesLoc(s,"kec",locKec);
-    const matchDesa = !locDesa || matchesLoc(s,"desa",locDesa);
-    return matchQ && matchStatus && matchJenis && matchBulan && matchKategori && matchProv && matchKota && matchKec && matchDesa;
+    const matchStatus = !f.status || statusOf(s) === f.status;
+    const matchJenis = !f.jenis || s.jenis_form === f.jenis;
+    const matchBulan = !f.bulan || monthKeyOf(s) === f.bulan;
+    const matchKategori = !f.kategori || s.program_kategori === f.kategori;
+    const matchDept = !f.dept || getDeptAbbrFromEmail(s.assigned_by || s.admin_signed_by) === f.dept;
+    const matchProv = !f.locProv || matchesLoc(s,"prov",f.locProv);
+    const matchKota = !f.locKota || matchesLoc(s,"kota",f.locKota);
+    const matchKec = !f.locKec || matchesLoc(s,"kec",f.locKec);
+    const matchDesa = !f.locDesa || matchesLoc(s,"desa",f.locDesa);
+    return matchQ && matchStatus && matchJenis && matchBulan && matchKategori && matchDept && matchProv && matchKota && matchKec && matchDesa;
   });
 }
 /* Kelompokkan hasil submit massal (punya batch_id sama) jadi 1 baris ringkas di tabel,
@@ -3265,6 +3323,7 @@ function computeAssignmentBadge(sub){
 function renderTable(){
   const tableWrap = $("#table-wrap");
   if(!tableWrap) return;
+  updateFilterButtonLabel();
   const flat = getFilteredFlatList();
   const rows = groupSubmissions(flat);
   const badgeColLabel = CURRENT_VIEWER_ROLE && CURRENT_VIEWER_ROLE.role === "kepala_divisi" ? "Departemen" : "Pemberi Tugas";
