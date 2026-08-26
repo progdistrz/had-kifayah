@@ -623,19 +623,21 @@ const COLLECTION = "assessments";
    Security Rules (lihat komentar "FIREBASE CONFIG" di bawah) supaya
    pembatasan ini benar-benar ditegakkan di server — filter di sini
    hanya mengatur tampilan, bukan proteksi sesungguhnya. */
-/* GANTI seluruh "081200000000" di bawah dengan nomor telepon asli masing-masing
-   pejabat/bawahan sebelum dipakai — placeholder ini hanya penanda tempat. */
+/* Nomor telepon & nama TIDAK diisi manual di sini lagi — tiap pemilik akun mengisi
+   nama, no. telepon, dan tanda tangannya sendiri lewat ⚙️ Pengaturan → "Kontak & Tanda
+   Tangan Saya" (tersimpan per akun di koleksi admin_profiles). "nama" di bawah ini
+   hanya dipakai sbg fallback singkat untuk Kepala Dept sebelum mereka mengisi sendiri. */
 const ROLE_HIERARCHY = {
-  "admin@progdist.erzet": { role:"kepala_divisi", nama:"Kepala Divisi", telp:"081200000000" },
-  "sosv@progdist.erzet": { role:"dept_head", dept:"Dept. Sosv", nama:"US", telp:"081200000000", subordinates:["prcb@progdist.erzet","sosv.admin@progdist.erzet"] },
-  "sch@progdist.erzet": { role:"dept_head", dept:"Dept. Sch", nama:"SN", telp:"081200000000", subordinates:["iis@progdist.erzet","diki@progdist.erzet"] },
-  "pem@progdist.erzet": { role:"dept_head", dept:"Dept. PEM", nama:"BK", telp:"081200000000", subordinates:["mujib@progdist.erzet","rafi@progdist.erzet"] },
-  "prcb@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv", telp:"081200000000" },
-  "sosv.admin@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv", telp:"081200000000" },
-  "iis@progdist.erzet": { role:"subordinate", dept:"Dept. Sch", telp:"081200000000" },
-  "diki@progdist.erzet": { role:"subordinate", dept:"Dept. Sch", telp:"081200000000" },
-  "mujib@progdist.erzet": { role:"subordinate", dept:"Dept. PEM", telp:"081200000000" },
-  "rafi@progdist.erzet": { role:"subordinate", dept:"Dept. PEM", telp:"081200000000" },
+  "admin@progdist.erzet": { role:"kepala_divisi", nama:"Kepala Divisi" },
+  "sosv@progdist.erzet": { role:"dept_head", dept:"Dept. Sosv", nama:"US", subordinates:["prcb@progdist.erzet","sosv.admin@progdist.erzet"] },
+  "sch@progdist.erzet": { role:"dept_head", dept:"Dept. Sch", nama:"SN", subordinates:["iis@progdist.erzet","diki@progdist.erzet"] },
+  "pem@progdist.erzet": { role:"dept_head", dept:"Dept. PEM", nama:"BK", subordinates:["mujib@progdist.erzet","rafi@progdist.erzet"] },
+  "prcb@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv" },
+  "sosv.admin@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv" },
+  "iis@progdist.erzet": { role:"subordinate", dept:"Dept. Sch" },
+  "diki@progdist.erzet": { role:"subordinate", dept:"Dept. Sch" },
+  "mujib@progdist.erzet": { role:"subordinate", dept:"Dept. PEM" },
+  "rafi@progdist.erzet": { role:"subordinate", dept:"Dept. PEM" },
 };
 function getRoleInfo(email){
   if(!email) return null;
@@ -2864,6 +2866,7 @@ let ADMIN_FILTERS = { search:"", jenis:"", status:"", bulan:"", kategori:"", dep
 
 let ADMIN_SIGNATURE = null;
 let ADMIN_NAME = null;
+let ADMIN_TELP = null;
 let CURRENT_VIEWER_ROLE = null;
 function renderDashboard(shell, user){
   const roleInfo = getRoleInfo(user.email);
@@ -2884,15 +2887,17 @@ function renderDashboard(shell, user){
   ADMIN_FILTERS = { search:"", jenis:"", status:"", bulan:"", kategori:"", dept:"", locProv:"", locKota:"", locKec:"", locDesa:"" };
   ADMIN_SIGNATURE = null;
   ADMIN_NAME = null;
+  ADMIN_TELP = null;
   if(auth.currentUser){
     db.collection("admin_profiles").doc(auth.currentUser.uid).get()
       .then(doc=>{
         ADMIN_SIGNATURE = doc.exists ? (doc.data().signature || null) : null;
         ADMIN_NAME = doc.exists ? (doc.data().nama || null) : null;
+        ADMIN_TELP = doc.exists ? (doc.data().telp || null) : null;
         const nameEl = $("#dash-admin-name");
         if(nameEl && ADMIN_NAME) nameEl.textContent = `Masuk sebagai ${ADMIN_NAME} (${user.email})`;
       })
-      .catch(()=>{ ADMIN_SIGNATURE = null; ADMIN_NAME = null; });
+      .catch(()=>{ ADMIN_SIGNATURE = null; ADMIN_NAME = null; ADMIN_TELP = null; });
   }
   shell.innerHTML = "";
   shell.appendChild(el("div",{class:"dash-head"},
@@ -3154,26 +3159,8 @@ async function toggleSettingsPanel(){
     const profileDoc = await db.collection("admin_profiles").doc(auth.currentUser.uid).get();
     const existingSig = profileDoc.exists ? (profileDoc.data().signature || null) : null;
     const existingNama = profileDoc.exists ? (profileDoc.data().nama || "") : "";
+    const existingTelp = profileDoc.exists ? (profileDoc.data().telp || "") : "";
     box.innerHTML = "";
-
-    box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
-      el("div",{class:"step-head"},
-        el("div",{class:"eyebrow"}, "Pengaturan"),
-        el("h2",{style:"font-size:18px;"}, "Kontak Tim"),
-        el("div",{class:"desc"}, "Daftar seluruh pejabat & bawahan terdaftar beserta nomor teleponnya.")
-      ),
-      el("div",{},
-        ...Object.entries(ROLE_HIERARCHY).map(([email, info])=>
-          el("div",{class:"review-item"},
-            el("div",{},
-              el("div",{class:"review-item-name"}, info.nama || email.split("@")[0]),
-              el("div",{class:"review-item-sub"}, `${info.role === "kepala_divisi" ? "Kepala Divisi" : info.dept} · ${email}`),
-            ),
-            el("div",{class:"mono", style:"font-size:13px;font-weight:700;color:var(--primary-dark);"}, info.telp || "-")
-          )
-        )
-      )
-    ));
 
     box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
       el("div",{class:"step-head"},
@@ -3198,12 +3185,16 @@ async function toggleSettingsPanel(){
     const sigPanel = el("div",{class:"step-panel"},
       el("div",{class:"step-head"},
         el("div",{class:"eyebrow"}, "Pengaturan"),
-        el("h2",{style:"font-size:18px;"}, "Nama & Tanda Tangan Saya"),
-        el("div",{class:"desc"}, "Nama ditampilkan di PDF (kolom Pemberi Tugas), tanda tangan otomatis disematkan setiap kali Anda menentukan status kelayakan (Layak Dibantu / Perlu Perhatian Khusus / Tidak Layak Dibantu) pada suatu assessment.")
+        el("h2",{style:"font-size:18px;"}, "Kontak & Tanda Tangan Saya"),
+        el("div",{class:"desc"}, `Akun: ${auth.currentUser.email}. Nama & No. Telepon ditampilkan di PDF (kolom Pemberi Tugas), tanda tangan otomatis disematkan setiap kali Anda menentukan status kelayakan (Layak Dibantu / Perlu Perhatian Khusus / Tidak Layak Dibantu) pada suatu assessment.`)
       ),
       el("div",{class:"field-tight"},
         el("label",{}, "Nama Pejabat"),
         el("input",{type:"text", id:"settings-nama-input", value: existingNama, placeholder:"Contoh: Ustadz Fulan"})
+      ),
+      el("div",{class:"field-tight"},
+        el("label",{}, "No. Telepon"),
+        el("input",{type:"tel", id:"settings-telp-input", value: existingTelp, placeholder:"Contoh: 081234567890"})
       )
     );
     if(existingSig){
@@ -3216,14 +3207,17 @@ async function toggleSettingsPanel(){
     sigPanel.appendChild(sigBox);
     sigPanel.appendChild(el("button",{class:"btn btn-primary", style:"margin-top:12px;", onclick: async ()=>{
       const namaVal = $("#settings-nama-input").value.trim();
+      const telpVal = $("#settings-telp-input").value.trim();
       if(!namaVal){ toast("Mohon isi Nama Pejabat terlebih dahulu."); return; }
+      if(!telpVal || !isValidPhone(telpVal)){ toast("Mohon isi No. Telepon dengan format angka yang benar (9-15 digit)."); return; }
       if(!existingSig && pad.isEmpty()){ toast("Mohon bubuhkan tanda tangan terlebih dahulu."); return; }
       try{
-        const payload = { nama: namaVal, email: auth.currentUser.email, updated_at: firebase.firestore.FieldValue.serverTimestamp() };
+        const payload = { nama: namaVal, telp: telpVal, email: auth.currentUser.email, updated_at: firebase.firestore.FieldValue.serverTimestamp() };
         if(!pad.isEmpty()) payload.signature = pad.toDataURL();
         await db.collection("admin_profiles").doc(auth.currentUser.uid).set(payload, {merge:true});
         if(payload.signature) ADMIN_SIGNATURE = payload.signature;
         ADMIN_NAME = namaVal;
+        ADMIN_TELP = telpVal;
         const nameEl = $("#dash-admin-name");
         if(nameEl) nameEl.textContent = `Masuk sebagai ${namaVal} (${auth.currentUser.email})`;
         toast("Pengaturan tersimpan.");
@@ -3552,7 +3546,7 @@ function dsection(title, pairs){
 }
 async function updateStatus(sub, status){
   if(!ADMIN_SIGNATURE){
-    toast("Anda belum membuat tanda tangan. Buka ⚙️ Pengaturan → Nama & Tanda Tangan Saya terlebih dahulu.");
+    toast("Anda belum membuat tanda tangan. Buka ⚙️ Pengaturan → Kontak & Tanda Tangan Saya terlebih dahulu.");
     return;
   }
   try{
@@ -3561,6 +3555,7 @@ async function updateStatus(sub, status){
       admin_signature: ADMIN_SIGNATURE,
       admin_signed_by: auth.currentUser ? auth.currentUser.email : "-",
       admin_signed_by_nama: ADMIN_NAME || null,
+      admin_signed_by_telp: ADMIN_TELP || null,
       admin_signed_at: firebase.firestore.FieldValue.serverTimestamp(),
     });
     toast("Status diperbarui.");
@@ -3793,7 +3788,7 @@ function drawFullAssessmentPDF(doc, sub){
   y = pdfSignatureBlock(doc, marginX, y, contentW, [
     { label:"Surveyor", name: sub.nama_surveyor, phone: sub.phone_surveyor, sigDataUrl: sub.ttd_petugas },
     { label:"Penerima Manfaat", name: sub.nama_pengaju, phone: sub.telp, sigDataUrl: sub.ttd_pengaju },
-    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by_nama || sub.admin_signed_by, phone: "", sigDataUrl: sub.admin_signature },
+    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by_nama || sub.admin_signed_by, phone: sub.admin_signed_by_telp || "", sigDataUrl: sub.admin_signature },
   ]);
 }
 
@@ -4027,7 +4022,7 @@ function drawRapidAssessmentPDF(doc, sub){
   y = pdfSignatureBlock(doc, marginX, y, contentW, [
     { label:"Petugas/Amil Pelaksana Assessment", name: sub.program_petugas, phone: sub.program_telp_petugas, sigDataUrl: sub.ttd_petugas },
     { label:"Penerima Manfaat", name: sub.nama_pengaju || sub.nama, phone: sub.telp, sigDataUrl: sub.ttd_pengaju },
-    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by_nama || sub.admin_signed_by, phone: "", sigDataUrl: sub.admin_signature },
+    { label:"Pemberi Tugas (Admin)", name: sub.admin_signed_by_nama || sub.admin_signed_by, phone: sub.admin_signed_by_telp || "", sigDataUrl: sub.admin_signature },
   ]);
 }
 
