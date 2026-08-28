@@ -650,7 +650,8 @@ function getRoleInfo(email){
 function getDeptAbbrFromEmail(email){
   const info = getRoleInfo(email);
   if(!info) return null;
-  if(info.role === "kepala_divisi" || info.role === "super_admin") return "PUSAT";
+  if(info.role === "kepala_divisi") return "PROGDIST";
+  if(info.role === "super_admin") return "ADMIN PUSAT";
   const m = (info.dept || "").match(/Dept\.?\s*(\S+)/i);
   return m ? m[1].toUpperCase() : (info.dept || null);
 }
@@ -3559,21 +3560,23 @@ function openDetail(sub){
 }
 /* ---------------- Edit Data mentah — khusus Admin Pusat (developer web) ----------------
    Admin Pusat bisa mengedit SELURUH field inputan surveyor secara langsung, apa pun jenis
-   formnya (Full/Rapid) — TERMASUK field Pemberi Tugas (status, email/nama/telp penandatangan)
-   untuk memperbaiki data lama yang sempat tersimpan tanpa nama/telp (mis. sebelum fitur itu
-   ditambahkan ke kode). Nilai berupa teks/angka ditampilkan sbg input biasa; nilai berupa
-   larik/objek (tabel dinamis, kategori asnaf, dst) ditampilkan sbg JSON yang bisa disunting.
-   Yang TETAP disembunyikan hanya field yang berupa gambar/timestamp (tanda tangan, metadata
-   pengiriman) karena tidak praktis/aman disunting sbg teks biasa. */
+   formnya (Full/Rapid) — TERMASUK field Pemberi Tugas: assigned_by (siapa yang membagikan
+   Link Penugasan — dipakai kalau ada assessment "Belum Ditugaskan" yang sebenarnya sudah
+   diketahui pemberi tugasnya, tapi field ini gagal/belum terekam saat surveyor mengisi) dan
+   status/email/nama/telp penandatangan (mis. sebelum fitur nama/telp ditambahkan ke kode).
+   Nilai berupa teks/angka ditampilkan sbg input biasa; nilai berupa larik/objek (tabel
+   dinamis, kategori asnaf, dst) ditampilkan sbg JSON yang bisa disunting. Yang TETAP
+   disembunyikan hanya field yang berupa gambar/timestamp (tanda tangan, metadata pengiriman)
+   karena tidak praktis/aman disunting sbg teks biasa. */
 const EDIT_DATA_SKIP_FIELDS = new Set([
-  "id","submittedAt","jenis_form","status_review","assigned_by","session_id",
+  "id","submittedAt","jenis_form","status_review","session_id",
   "admin_signature","admin_signed_at",
   "ttd_petugas","ttd_pengaju","petugas_signature","batch_id","reviewed_at","reviewed_by",
 ]);
 /* Field Pemberi Tugas SELALU ditampilkan di editor ini meski belum pernah ada sama sekali
    di dokumen (mis. data lama yang direview sebelum fitur nama/telp ditambahkan) — supaya
    Admin Pusat bisa MENAMBAHKAN, bukan cuma mengubah, field yang hilang tsb. */
-const EDIT_DATA_ALWAYS_SHOW = ["admin_status","admin_signed_by","admin_signed_by_nama","admin_signed_by_telp"];
+const EDIT_DATA_ALWAYS_SHOW = ["assigned_by","admin_status","admin_signed_by","admin_signed_by_nama","admin_signed_by_telp"];
 function openEditDataDrawer(sub){
   const backdrop = el("div",{class:"drawer-backdrop", onclick:closeDetail});
   const drawer = el("div",{class:"drawer"});
@@ -3603,6 +3606,11 @@ function openEditDataDrawer(sub){
     Object.entries(inputs).forEach(([key, {el:inputEl, isComplex}])=>{
       if(hasError) return;
       const raw = inputEl.value;
+      // Field dari EDIT_DATA_ALWAYS_SHOW yang sebelumnya TIDAK ADA sama sekali di dokumen
+      // dan dibiarkan kosong (tidak disentuh Admin Pusat) sengaja TIDAK ikut ditulis —
+      // supaya tidak menambahkan field baru berisi string kosong yang tidak diinginkan.
+      const alreadyExisted = Object.prototype.hasOwnProperty.call(sub, key);
+      if(!alreadyExisted && raw.trim() === "") return;
       if(isComplex){
         try{ updatePayload[key] = JSON.parse(raw); }
         catch(e){ hasError = true; toast(`Format JSON tidak valid pada field "${key}".`); }
