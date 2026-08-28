@@ -536,6 +536,9 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
             // - anonim (surveyor/calon peserta, token tanpa email) tetap boleh baca seperti sebelumnya
             //   (dipakai fitur Riwayat/Daftar Review milik surveyor).
             // - progdist@admin.erzet (Admin Pusat/developer) & admin@progdist.erzet (Kepala Divisi): baca semua.
+            // - performed_by == email saya sendiri: pejabat yg SECARA PRIBADI mengisi lewat
+            //   tombol "Lakukan Assessment Sendiri" selalu boleh baca hasil kerjanya sendiri,
+            //   walau assigned_by mengarah ke atasannya (bukan dirinya).
             // - dept head + 2 bawahannya: baca dokumen "antrian terbuka", ATAU yang assigned_by
             //   (ditugaskan lewat Link Tugas) / admin_signed_by (sudah direview) berasal dari
             //   salah satu email dalam dept yang sama.
@@ -543,6 +546,7 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
               !isRealAdmin() ||
               request.auth.token.email == "progdist@admin.erzet" ||
               request.auth.token.email == "admin@progdist.erzet" ||
+              (("performed_by" in resource.data) && resource.data.performed_by != null && resource.data.performed_by == request.auth.token.email) ||
               (request.auth.token.email in ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"] &&
                 deptCanSee(resource.data, ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"])) ||
               (request.auth.token.email in ["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"] &&
@@ -711,6 +715,11 @@ function getVisibleSubmissionsForRole(list, email){
     : new Set([email.toLowerCase()]);
   return list.filter(s=>{
     if(isOpenQueueItem(s)) return true;
+    // "performed_by" = pejabat yang SECARA PRIBADI turun ke lapangan mengisi lewat tombol
+    // "Lakukan Assessment Sendiri" di dashboard. Ini dicek TERPISAH dari assigned_by supaya
+    // hasil kerjanya tetap terlihat di dashboard pejabat itu SENDIRI (privasi antar-bawahan
+    // tetap terjaga: performed_by hanya cocok utk emailnya sendiri, bukan seluruh dept).
+    if(s.performed_by && allowed.has(s.performed_by.toLowerCase())) return true;
     // Begitu assigned_by SUDAH terisi, itu jadi SATU-SATUNYA penentu departemen "pemilik"
     // item ini — mengabaikan admin_signed_by lama dari dept lain (mis. dari pengujian
     // sebelum assigned_by diperbaiki manual oleh Admin Pusat), supaya item yang sudah
@@ -1116,6 +1125,17 @@ function isKepalaDivisiSelf(){
   const info = getRoleInfo(auth.currentUser.email);
   return !!(info && info.role === "kepala_divisi");
 }
+/* Kalau pejabat yang SEDANG LOGIN (bukan surveyor anonim) melakukan assessment sendiri lewat
+   tombol "Lakukan Assessment Sendiri" di dashboard, identitas Nama/No.Telp/Tanda Tangan
+   Surveyor otomatis memakai data profil mereka sendiri (ADMIN_NAME/ADMIN_TELP/ADMIN_SIGNATURE,
+   sudah dimuat sejak dashboard dibuka) — tidak perlu diketik/digambar ulang. Admin Pusat
+   dikecualikan karena bukan bagian struktur pejabat yang turun ke lapangan. */
+function getSelfAssessmentIdentity(){
+  if(!auth || !auth.currentUser || auth.currentUser.isAnonymous) return null;
+  const info = getRoleInfo(auth.currentUser.email);
+  if(!info || info.role === "super_admin") return null;
+  return { email: auth.currentUser.email.toLowerCase(), nama: ADMIN_NAME, telp: ADMIN_TELP, signature: ADMIN_SIGNATURE };
+}
 function renderNeedsAssignmentScreen(app, formName){
   const wrap = el("div",{});
   wrap.appendChild(topbar("public"));
@@ -1131,6 +1151,12 @@ function renderNeedsAssignmentScreen(app, formName){
 function renderSurveyPage(app){
   if(!ASSIGNED_BY && !isKepalaDivisiSelf()){ renderNeedsAssignmentScreen(app, "Full Assessment"); return; }
   resetFormState();
+  const selfId = getSelfAssessmentIdentity();
+  if(selfId){
+    // Pejabat sendiri yang jadi surveyor — pra-isi Nama & No. Telepon Surveyor dari profilnya.
+    if(selfId.nama) formState.nama_surveyor = selfId.nama;
+    if(selfId.telp) formState.phone_surveyor = selfId.telp;
+  }
   ensureAnonAuth();
   const wrap = el("div",{});
   wrap.appendChild(topbar(false));
@@ -1236,10 +1262,19 @@ function renderWizard(body){
   if(step.key === "resume"){
     form.appendChild(sectionHeading(null, "Tanda Tangan"));
     const sigGrid = el("div",{class:"row2"});
+    const selfId = getSelfAssessmentIdentity();
 
     const surveyorBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, "Surveyor — " + (formState.nama_surveyor || "")));
-    sigSurveyorFull = createSignaturePad();
-    surveyorBox.appendChild(sigSurveyorFull.el);
+    if(selfId && selfId.signature){
+      // Pejabat sendiri yang jadi surveyor & sudah punya tanda tangan tersimpan di profilnya —
+      // otomatis dipakai lagi tanpa perlu digambar ulang tiap kali submit assessment.
+      surveyorBox.appendChild(el("div",{class:"hint", style:"margin-bottom:6px;"}, "Tanda tangan otomatis dari profil Anda:"));
+      surveyorBox.appendChild(el("img",{src:selfId.signature, style:"max-width:220px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;"}));
+      sigSurveyorFull = { isEmpty: ()=>false, toDataURL: ()=>selfId.signature };
+    } else {
+      sigSurveyorFull = createSignaturePad();
+      surveyorBox.appendChild(sigSurveyorFull.el);
+    }
     sigGrid.appendChild(surveyorBox);
 
     const pengajuBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, "Penerima Manfaat — " + (formState.nama_pengaju || "")));
@@ -1554,6 +1589,7 @@ async function submitAssessment(body){
     jenis_form: "full_assessment",
     status_review: "pending",
     assigned_by: ASSIGNED_BY || null,
+    performed_by: getSelfAssessmentIdentity()?.email || null,
     submittedAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -1776,6 +1812,7 @@ const PROGRAM_KATEGORI_OPTIONS = ["Layanan Ambulance","Bantuan Kesehatan","Khita
 function renderSessionSetup(shell){
   const temp = {};
   sigSession = null;
+  const selfId = getSelfAssessmentIdentity();
   const panel = el("div",{class:"step-panel"},
     el("div",{class:"step-head"},
       el("div",{class:"eyebrow"}, "Tahap 1 · A. Data Program"),
@@ -1788,16 +1825,23 @@ function renderSessionSetup(shell){
     ),
     el("div",{class:"row2"},
       plainField("Lokasi Penyaluran", v=>temp.lokasi_penyaluran=v),
-      plainField("Nama Petugas / Amil", v=>temp.nama_petugas=v, "text", true),
+      plainField("Nama Petugas / Amil", v=>temp.nama_petugas=v, "text", true, selfId?.nama),
     ),
     el("div",{class:"row2"},
-      plainPhoneField("No. Telepon Petugas Surveyor", v=>temp.telp_petugas=v, true),
+      plainPhoneField("No. Telepon Petugas Surveyor", v=>temp.telp_petugas=v, true, selfId?.telp),
       plainSelectField("Kategori Program", PROGRAM_KATEGORI_OPTIONS, v=>temp.kategori_program=v, true),
     ),
   );
   const sigBox = el("div",{class:"sig-box"}, el("div",{class:"q"}, "Tanda Tangan Petugas / Amil (berlaku untuk seluruh sesi ini)"));
-  sigSession = createSignaturePad();
-  sigBox.appendChild(sigSession.el);
+  if(selfId && selfId.signature){
+    // Pejabat sendiri yang jadi petugas & sudah punya tanda tangan tersimpan di profilnya.
+    sigBox.appendChild(el("div",{class:"hint", style:"margin-bottom:6px;"}, "Tanda tangan otomatis dari profil Anda:"));
+    sigBox.appendChild(el("img",{src:selfId.signature, style:"max-width:220px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;"}));
+    sigSession = { isEmpty: ()=>false, toDataURL: ()=>selfId.signature };
+  } else {
+    sigSession = createSignaturePad();
+    sigBox.appendChild(sigSession.el);
+  }
   panel.appendChild(sigBox);
 
   panel.appendChild(el("div",{class:"step-foot", style:"justify-content:flex-end;"},
@@ -1815,6 +1859,7 @@ function renderSessionSetup(shell){
         ...temp,
         petugas_signature: sigSession.toDataURL(),
         assigned_by: ASSIGNED_BY || null,
+        performed_by: getSelfAssessmentIdentity()?.email || null,
         createdAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
       };
       try{
@@ -1831,7 +1876,7 @@ function renderSessionSetup(shell){
   ));
   return panel;
 }
-function plainPhoneField(label, onInput, required){
+function plainPhoneField(label, onInput, required, initialValue){
   const wrap = el("div",{class:"field"});
   wrap.appendChild(el("label",{class:"q"}, label, required?el("span",{class:"req"}," *"):null));
   const inp = el("input",{type:"text", inputmode:"tel"});
@@ -1840,6 +1885,7 @@ function plainPhoneField(label, onInput, required){
     inp.value = cleaned;
     onInput(cleaned);
   });
+  if(initialValue){ inp.value = initialValue; onInput(initialValue); }
   wrap.appendChild(inp);
   wrap.appendChild(el("div",{class:"hint"}, "Contoh: 081234567890"));
   return wrap;
@@ -1854,10 +1900,12 @@ function plainSelectField(label, options, onInput, required){
   wrap.appendChild(sel);
   return wrap;
 }
-function plainField(label, onInput, type="text", required){
+function plainField(label, onInput, type="text", required, initialValue){
   const wrap = el("div",{class:"field"});
   wrap.appendChild(el("label",{class:"q"}, label, required?el("span",{class:"req"}," *"):null));
-  wrap.appendChild(el("input",{type, oninput:(e)=>onInput(e.target.value)}));
+  const inp = el("input",{type, oninput:(e)=>onInput(e.target.value)});
+  if(initialValue){ inp.value = initialValue; onInput(initialValue); }
+  wrap.appendChild(inp);
   return wrap;
 }
 function programChip(label, value){
@@ -2459,6 +2507,7 @@ async function submitDirect(shell){
     program_telp_petugas: rapidSession.telp_petugas,
     program_kategori: rapidSession.kategori_program,
     assigned_by: rapidSession.assigned_by || null,
+    performed_by: rapidSession.performed_by || null,
     ttd_petugas: rapidSession.petugas_signature,
     ttd_pengaju: sigPengaju.toDataURL(),
     diisi_oleh: "surveyor",
@@ -2812,6 +2861,7 @@ async function submitSelfFill(shell, sessionId, session){
     program_telp_petugas: session.telp_petugas,
     program_kategori: session.kategori_program,
     assigned_by: session.assigned_by || null,
+    performed_by: session.performed_by || null,
     ttd_pengaju: sigSelf.toDataURL(),
     diisi_oleh: "peserta_sendiri",
     jenis_form: "rapid_assessment",
