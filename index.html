@@ -3020,35 +3020,31 @@ function renderDashboard(shell, user){
       if(selfAssignedBy) saveAssignedByRef(selfAssignedBy); else clearAssignedByRef();
       location.hash = route;
     };
+    // Link Penugasan (#/tugas/<email>) — dibagikan ke Surveyor lapangan. Formulir apa pun yang
+    // mereka isi lewat link ini otomatis tercatat untuk pejabat ini (assigned_by), langsung
+    // terlihat di dashboardnya + atasan + Kepala Divisi, tanpa perlu direview dulu.
+    const myLink = location.origin + location.pathname + "#/tugas/" + encodeURIComponent(user.email);
+    const copyMyLink = ()=>{
+      (navigator.clipboard ? navigator.clipboard.writeText(myLink) : Promise.reject()).then(()=>toast("Link disalin.")).catch(()=>{
+        const ta = document.createElement("textarea");
+        ta.value = myLink; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
+        toast("Link disalin.");
+      });
+    };
     shell.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
       el("div",{class:"step-head"},
         el("div",{class:"eyebrow"}, "Assessment"),
         el("h2",{style:"font-size:17px;"}, "Lakukan Assessment Sendiri"),
         el("div",{class:"desc"}, `Jika Anda sendiri turun ke lapangan sebagai surveyor. ${selfAssignDesc}`)
       ),
-      el("div",{style:"display:flex;gap:10px;flex-wrap:wrap;"},
+      el("div",{style:"display:flex;gap:10px;flex-wrap:wrap;align-items:center;"},
         el("button",{class:"btn btn-primary", type:"button", onclick:()=>startSelfAssessment("#/survey/full")}, "📋 Full Assessment"),
         el("button",{class:"btn btn-primary", type:"button", onclick:()=>startSelfAssessment("#/survey/rapid")}, "⚡ Rapid Assessment"),
+        el("button",{class:"btn btn-ghost", type:"button", onclick: copyMyLink}, "🔗 Copy Link Assessment Untuk Surveyor"),
       )
     ));
   }
-
-  const myLink = location.origin + location.pathname + "#/tugas/" + encodeURIComponent(user.email);
-  shell.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
-    el("div",{class:"step-head"},
-      el("div",{class:"eyebrow"}, "Link Penugasan"),
-      el("h2",{style:"font-size:17px;"}, "Bagikan ke Surveyor"),
-      el("div",{class:"desc"}, "Formulir apa pun (Full/Rapid Assessment) yang diisi surveyor lewat link ini otomatis tercatat untuk Anda — langsung terlihat di dashboard Anda, atasan Anda, dan Kepala Divisi, tanpa perlu direview dulu. Departemen lain tidak akan melihatnya.")
-    ),
-    el("div",{class:"link-box"},
-      el("input",{type:"text", readonly:"readonly", value: myLink, id:"tugas-link-input", onclick:(e)=>e.target.select()}),
-      el("button",{class:"btn btn-accent", type:"button", onclick:()=>{
-        (navigator.clipboard ? navigator.clipboard.writeText(myLink) : Promise.reject()).then(()=>toast("Link disalin.")).catch(()=>{
-          const inp = $("#tugas-link-input"); inp.select(); document.execCommand("copy"); toast("Link disalin.");
-        });
-      }}, "Salin Link")
-    )
-  ));
 
   const statRow = el("div",{class:"stat-row"});
   shell.appendChild(statRow);
