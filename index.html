@@ -3187,15 +3187,55 @@ async function toggleSettingsPanel(){
     const pad = createSignaturePad();
     sigBox.appendChild(pad.el);
     sigPanel.appendChild(sigBox);
+
+    // Alternatif: upload file gambar tanda tangan (mis. hasil scan/foto ttd basah) alih-alih
+    // menggambar langsung. Gambar diunggah dinormalisasi ke lebar tetap + latar putih (jaga-jaga
+    // kalau file PNG-nya transparan) supaya konsisten & tercetak jelas di PDF.
+    let uploadedSigDataUrl = null;
+    const sigUploadPreview = el("div",{style:"margin-top:10px;"});
+    const sigUploadInput = el("input",{type:"file", accept:"image/png,image/jpeg,image/webp", id:"settings-sig-upload"});
+    sigUploadInput.addEventListener("change", (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev)=>{
+        const img = new Image();
+        img.onload = ()=>{
+          const maxW = 400;
+          const scale = Math.min(1, maxW / img.width);
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          uploadedSigDataUrl = canvas.toDataURL("image/png");
+          sigUploadPreview.innerHTML = "";
+          sigUploadPreview.appendChild(el("div",{class:"hint", style:"margin-bottom:4px;"}, "Pratinjau gambar yang diunggah:"));
+          sigUploadPreview.appendChild(el("img",{src: uploadedSigDataUrl, style:"max-width:220px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;"}));
+        };
+        img.onerror = ()=> toast("Gagal membaca gambar — pastikan file berformat PNG/JPG/WEBP yang valid.");
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+    sigPanel.appendChild(el("div",{class:"field-tight", style:"margin-top:14px;"},
+      el("label",{}, "Atau Upload Tanda Tangan Digital (gambar)"),
+      sigUploadInput,
+      sigUploadPreview,
+    ));
+
     sigPanel.appendChild(el("button",{class:"btn btn-primary", style:"margin-top:12px;", onclick: async ()=>{
       const namaVal = $("#settings-nama-input").value.trim();
       const telpVal = $("#settings-telp-input").value.trim();
       if(!namaVal){ toast("Mohon isi Nama Pejabat terlebih dahulu."); return; }
       if(!telpVal || !isValidPhone(telpVal)){ toast("Mohon isi No. Telepon dengan format angka yang benar (9-15 digit)."); return; }
-      if(!existingSig && pad.isEmpty()){ toast("Mohon bubuhkan tanda tangan terlebih dahulu."); return; }
+      if(!existingSig && pad.isEmpty() && !uploadedSigDataUrl){ toast("Mohon bubuhkan tanda tangan terlebih dahulu (gambar langsung atau upload file)."); return; }
       try{
         const payload = { nama: namaVal, telp: telpVal, email: auth.currentUser.email, updated_at: firebase.firestore.FieldValue.serverTimestamp() };
-        if(!pad.isEmpty()) payload.signature = pad.toDataURL();
+        // Prioritas: file yang baru diunggah > gambar tangan yang baru dibuat > (biarkan tanda tangan lama tidak berubah jika tidak ada keduanya).
+        if(uploadedSigDataUrl) payload.signature = uploadedSigDataUrl;
+        else if(!pad.isEmpty()) payload.signature = pad.toDataURL();
         await db.collection("admin_profiles").doc(auth.currentUser.uid).set(payload, {merge:true});
         if(payload.signature) ADMIN_SIGNATURE = payload.signature;
         ADMIN_NAME = namaVal;
