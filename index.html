@@ -3158,33 +3158,11 @@ async function toggleSettingsPanel(){
   box.innerHTML = "";
   box.appendChild(el("div",{class:"setup-banner"}, "Memuat pengaturan…"));
   try{
-    const doc = await db.collection("app_settings").doc("notifications").get();
-    const emails = doc.exists ? (doc.data().emails || "") : "";
     const profileDoc = await db.collection("admin_profiles").doc(auth.currentUser.uid).get();
     const existingSig = profileDoc.exists ? (profileDoc.data().signature || null) : null;
     const existingNama = profileDoc.exists ? (profileDoc.data().nama || "") : "";
     const existingTelp = profileDoc.exists ? (profileDoc.data().telp || "") : "";
     box.innerHTML = "";
-
-    box.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
-      el("div",{class:"step-head"},
-        el("div",{class:"eyebrow"}, "Pengaturan"),
-        el("h2",{style:"font-size:18px;"}, "Email Notifikasi Admin"),
-        el("div",{class:"desc"}, "Email yang menerima notifikasi setiap ada assessment baru masuk. Pisahkan dengan koma untuk lebih dari satu alamat. Membutuhkan ekstensi Firebase \"Trigger Email from Firestore\" terpasang pada project ini.")
-      ),
-      el("input",{type:"text", id:"settings-email-input", value: emails, placeholder:"admin@contoh.org, kepala.program@contoh.org",
-        style:"width:100%;padding:10px 12px;border:1.5px solid var(--line-strong);border-radius:8px;"}),
-      el("div",{style:"margin-top:12px;"},
-        el("button",{class:"btn btn-primary", onclick: async ()=>{
-          const val = $("#settings-email-input").value.trim();
-          try{
-            await db.collection("app_settings").doc("notifications").set({ emails: val }, {merge:true});
-            toast("Pengaturan disimpan.");
-            box.innerHTML = "";
-          } catch(err){ toast("Gagal menyimpan: " + friendlyFirestoreError(err)); }
-        }}, "Simpan")
-      )
-    ));
 
     const sigPanel = el("div",{class:"step-panel"},
       el("div",{class:"step-head"},
@@ -3541,15 +3519,21 @@ function openDetail(sub){
 }
 /* ---------------- Edit Data mentah — khusus Admin Pusat (developer web) ----------------
    Admin Pusat bisa mengedit SELURUH field inputan surveyor secara langsung, apa pun jenis
-   formnya (Full/Rapid). Nilai berupa teks/angka ditampilkan sbg input biasa; nilai berupa
+   formnya (Full/Rapid) — TERMASUK field Pemberi Tugas (status, email/nama/telp penandatangan)
+   untuk memperbaiki data lama yang sempat tersimpan tanpa nama/telp (mis. sebelum fitur itu
+   ditambahkan ke kode). Nilai berupa teks/angka ditampilkan sbg input biasa; nilai berupa
    larik/objek (tabel dinamis, kategori asnaf, dst) ditampilkan sbg JSON yang bisa disunting.
-   Field sistem (status, tanda tangan, metadata pengiriman) sengaja tidak ditampilkan di sini
-   — tetap dikelola lewat tombol Tindakan Admin yang sudah ada supaya tidak tumpang tindih. */
+   Yang TETAP disembunyikan hanya field yang berupa gambar/timestamp (tanda tangan, metadata
+   pengiriman) karena tidak praktis/aman disunting sbg teks biasa. */
 const EDIT_DATA_SKIP_FIELDS = new Set([
   "id","submittedAt","jenis_form","status_review","assigned_by","session_id",
-  "admin_status","admin_signature","admin_signed_by","admin_signed_by_nama","admin_signed_by_telp","admin_signed_at",
+  "admin_signature","admin_signed_at",
   "ttd_petugas","ttd_pengaju","petugas_signature","batch_id","reviewed_at","reviewed_by",
 ]);
+/* Field Pemberi Tugas SELALU ditampilkan di editor ini meski belum pernah ada sama sekali
+   di dokumen (mis. data lama yang direview sebelum fitur nama/telp ditambahkan) — supaya
+   Admin Pusat bisa MENAMBAHKAN, bukan cuma mengubah, field yang hilang tsb. */
+const EDIT_DATA_ALWAYS_SHOW = ["admin_status","admin_signed_by","admin_signed_by_nama","admin_signed_by_telp"];
 function openEditDataDrawer(sub){
   const backdrop = el("div",{class:"drawer-backdrop", onclick:closeDetail});
   const drawer = el("div",{class:"drawer"});
@@ -3558,8 +3542,8 @@ function openEditDataDrawer(sub){
   body.appendChild(el("div",{class:"setup-banner"}, "⚠️ Mode Admin Pusat: seluruh field di bawah ini adalah data mentah tersimpan di Firestore. Nilai berupa daftar/tabel ditulis dalam format JSON — pastikan formatnya tetap valid sebelum menyimpan."));
 
   const inputs = {};
-  Object.keys(sub).sort().forEach(key=>{
-    if(EDIT_DATA_SKIP_FIELDS.has(key)) return;
+  const keysToShow = Array.from(new Set([...Object.keys(sub), ...EDIT_DATA_ALWAYS_SHOW])).filter(k=>!EDIT_DATA_SKIP_FIELDS.has(k)).sort();
+  keysToShow.forEach(key=>{
     const val = sub[key];
     const isComplex = typeof val === "object" && val !== null;
     const displayVal = isComplex ? JSON.stringify(val, null, 2) : (val==null ? "" : String(val));
