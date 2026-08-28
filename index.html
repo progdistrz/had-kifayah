@@ -1168,15 +1168,20 @@ function renderSurveyPage(app){
   renderWizard(body);
 }
 
-function topbar(isAdmin){
+function topbar(isAdmin, adminNameLabel){
   // Sejak akses publik hanya lewat Link Tugas (#/tugas/<email>), URL root ("#/") langsung
   // mengarah ke Login Admin — jadi tautan "Beranda" di topbar kini otomatis berfungsi
   // sebagai jalan pulang ke Login Admin (bukan halaman pilihan umum lagi).
-  // isAdmin: true = tampil "Keluar" (sudah login di dashboard admin), false = tampil "Beranda" saja,
-  // "public" = tanpa navigasi sama sekali (link mandiri utk calon peserta).
+  // isAdmin: true = tampil "Keluar" (sudah login di dashboard admin) + nama pemilik akun
+  // di atasnya, false = tampil "Beranda" saja, "public" = tanpa navigasi sama sekali
+  // (link mandiri utk calon peserta). adminNameLabel: teks nama yang tampil di atas "Keluar"
+  // (diisi sementara dgn email sampai profil ber-Nama selesai dimuat — lihat renderDashboard).
   const nav = isAdmin === "public" ? null : el("nav",{},
     el("a",{href:"#/"}, "Beranda"),
-    isAdmin===true ? el("button",{onclick:doLogout}, "Keluar") : null
+    isAdmin===true ? el("div",{style:"display:flex;flex-direction:column;align-items:flex-end;gap:3px;"},
+      el("div",{id:"topbar-admin-name", style:"font-size:11.5px;color:rgba(255,255,255,.85);font-weight:600;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"}, adminNameLabel||""),
+      el("button",{onclick:doLogout}, "Keluar")
+    ) : null
   );
   return el("div",{class:"topbar"},
     el("div",{class:"brand"},
@@ -2917,7 +2922,7 @@ function renderAdminPage(app){
     // langsung dianggap sebagai admin tanpa pernah memasukkan email/kata sandi.
     const isRealAdmin = !!user && user.isAnonymous !== true;
     wrap.innerHTML = "";
-    wrap.appendChild(topbar(isRealAdmin));
+    wrap.appendChild(topbar(isRealAdmin, isRealAdmin ? user.email : null));
     const shell = el("div",{class:"shell"});
     wrap.appendChild(shell);
     if(isRealAdmin) renderDashboard(shell, user);
@@ -2978,10 +2983,6 @@ function renderDashboard(shell, user){
     return;
   }
   CURRENT_VIEWER_ROLE = roleInfo;
-  const roleLabel = roleInfo.role === "super_admin" ? "Admin Pusat (Developer) — melihat & dapat mengedit seluruh data"
-    : roleInfo.role === "kepala_divisi" ? "Kepala Divisi — melihat seluruh assessment"
-    : roleInfo.role === "dept_head" ? `${roleInfo.dept} (${roleInfo.nama}) — melihat data Anda & ${roleInfo.subordinates.length} bawahan`
-    : `${roleInfo.dept} — hanya melihat assessment yang sudah Anda tentukan statusnya`;
 
   SELECTED_IDS = new Set();
   ADMIN_FILTERS = { search:"", jenis:"", status:"", bulan:"", kategori:"", dept:"", locProv:"", locKota:"", locKec:"", locDesa:"" };
@@ -2994,8 +2995,8 @@ function renderDashboard(shell, user){
         ADMIN_SIGNATURE = doc.exists ? (doc.data().signature || null) : null;
         ADMIN_NAME = doc.exists ? (doc.data().nama || null) : null;
         ADMIN_TELP = doc.exists ? (doc.data().telp || null) : null;
-        const nameEl = $("#dash-admin-name");
-        if(nameEl && ADMIN_NAME) nameEl.textContent = `Masuk sebagai ${ADMIN_NAME} (${user.email})`;
+        const nameEl = $("#topbar-admin-name");
+        if(nameEl && ADMIN_NAME) nameEl.textContent = ADMIN_NAME;
       })
       .catch(()=>{ ADMIN_SIGNATURE = null; ADMIN_NAME = null; ADMIN_TELP = null; });
   }
@@ -3003,8 +3004,6 @@ function renderDashboard(shell, user){
   shell.appendChild(el("div",{class:"dash-head"},
     el("div",{},
       el("h1",{},"Dashboard Assessment"),
-      el("div",{id:"dash-admin-name", style:"color:var(--ink-muted);font-size:13px;margin-top:4px;"}, "Masuk sebagai " + user.email),
-      el("div",{style:"color:var(--primary);font-size:12.5px;font-weight:700;margin-top:2px;"}, roleLabel),
     ),
     el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan")
   ));
@@ -3355,8 +3354,8 @@ async function toggleSettingsPanel(){
         if(payload.signature) ADMIN_SIGNATURE = payload.signature;
         ADMIN_NAME = namaVal;
         ADMIN_TELP = telpVal;
-        const nameEl = $("#dash-admin-name");
-        if(nameEl) nameEl.textContent = `Masuk sebagai ${namaVal} (${auth.currentUser.email})`;
+        const nameEl = $("#topbar-admin-name");
+        if(nameEl) nameEl.textContent = namaVal;
         toast("Pengaturan tersimpan.");
         box.innerHTML = "";
       } catch(err){ toast("Gagal menyimpan: " + friendlyFirestoreError(err)); }
