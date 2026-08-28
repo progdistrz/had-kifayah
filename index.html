@@ -95,7 +95,7 @@ a{ color: var(--primary); }
 }
 .topbar .brand .name{ font-family: var(--font-display); font-weight:600; font-size:17px; letter-spacing:.2px; }
 .topbar .brand .sub{ font-size:11px; color: rgba(255,255,255,.65); letter-spacing:.4px; text-transform:uppercase; }
-.topbar nav{ display:flex; gap:8px; align-items:center; }
+.topbar nav{ display:flex; gap:8px; align-items:flex-end; }
 .topbar nav a, .topbar nav button{
   color: rgba(255,255,255,.85); text-decoration:none; font-size:13px;
   background:transparent; border:1px solid rgba(255,255,255,.25); padding:7px 13px; border-radius:999px; cursor:pointer;
@@ -3001,19 +3001,12 @@ function renderDashboard(shell, user){
       .catch(()=>{ ADMIN_SIGNATURE = null; ADMIN_NAME = null; ADMIN_TELP = null; });
   }
   shell.innerHTML = "";
-  shell.appendChild(el("div",{class:"dash-head"},
-    el("div",{},
-      el("h1",{},"Dashboard Assessment"),
-    ),
-    el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan")
-  ));
-  shell.appendChild(el("div",{id:"settings-panel"}));
 
+  // Assessment sendiri + Link Penugasan (bukan Admin Pusat) — tombolnya disandingkan
+  // dengan "Pengaturan" di baris atas, tanpa keterangan tambahan di bawahnya.
+  const headerButtons = [];
   if(roleInfo.role !== "super_admin"){
     const selfAssignedBy = computeSelfAssignedBy(user.email);
-    const selfAssignDesc = roleInfo.role === "kepala_divisi"
-      ? "Sebagai Kepala Divisi, assessment yang Anda lakukan sendiri tidak memerlukan pemberi tugas."
-      : `Assessment yang Anda lakukan sendiri di sini otomatis tercatat dengan pemberi tugas: ${getDeptAbbrFromEmail(selfAssignedBy)}.`;
     const startSelfAssessment = (route)=>{
       ASSIGNED_BY = selfAssignedBy;
       if(selfAssignedBy) saveAssignedByRef(selfAssignedBy); else clearAssignedByRef();
@@ -3031,19 +3024,22 @@ function renderDashboard(shell, user){
         toast("Link disalin.");
       });
     };
-    shell.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
-      el("div",{class:"step-head"},
-        el("div",{class:"eyebrow"}, "Assessment"),
-        el("h2",{style:"font-size:17px;"}, "Lakukan Assessment Sendiri"),
-        el("div",{class:"desc"}, `Jika Anda sendiri turun ke lapangan sebagai surveyor. ${selfAssignDesc}`)
-      ),
-      el("div",{style:"display:flex;gap:10px;flex-wrap:wrap;align-items:center;"},
-        el("button",{class:"btn btn-primary", type:"button", onclick:()=>startSelfAssessment("#/survey/full")}, "📋 Full Assessment"),
-        el("button",{class:"btn btn-primary", type:"button", onclick:()=>startSelfAssessment("#/survey/rapid")}, "⚡ Rapid Assessment"),
-        el("button",{class:"btn btn-ghost", type:"button", onclick: copyMyLink}, "🔗 Copy Link Assessment Untuk Surveyor"),
-      )
-    ));
+    headerButtons.push(
+      el("button",{class:"btn btn-primary", type:"button", onclick:()=>startSelfAssessment("#/survey/full")}, "📋 Full Assessment"),
+      el("button",{class:"btn btn-primary", type:"button", onclick:()=>startSelfAssessment("#/survey/rapid")}, "⚡ Rapid Assessment"),
+      el("button",{class:"btn btn-ghost", type:"button", onclick: copyMyLink}, "🔗 Copy Link Assessment Untuk Surveyor"),
+    );
   }
+  shell.appendChild(el("div",{class:"dash-head"},
+    el("div",{},
+      el("h1",{},"Dashboard Assessment"),
+    ),
+    el("div",{style:"display:flex;gap:10px;flex-wrap:wrap;align-items:center;"},
+      ...headerButtons,
+      el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan"),
+    )
+  ));
+  shell.appendChild(el("div",{id:"settings-panel"}));
 
   const statRow = el("div",{class:"stat-row"});
   shell.appendChild(statRow);
