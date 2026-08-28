@@ -516,11 +516,15 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
                  (!("admin_status" in data) || data.admin_status == null);
         }
         // HARUS SAMA PERSIS dengan getVisibleSubmissionsForRole() di index.html.
+        // Begitu assigned_by SUDAH terisi, itu jadi SATU-SATUNYA penentu departemen pemilik
+        // (mengabaikan admin_signed_by dari dept lain) — supaya item yang sudah ditugaskan
+        // tidak lagi ikut terlihat oleh dept yang bukan pemiliknya.
         function deptCanSee(data, deptEmails) {
           return isOpenQueue(data) ||
-            (("assigned_by" in data) && data.assigned_by != null && data.assigned_by in deptEmails) ||
-            (("admin_status" in data) && data.admin_status != null &&
-              ("admin_signed_by" in data) && data.admin_signed_by != null && data.admin_signed_by in deptEmails);
+            (("assigned_by" in data) && data.assigned_by != null
+              ? data.assigned_by in deptEmails
+              : (("admin_status" in data) && data.admin_status != null &&
+                  ("admin_signed_by" in data) && data.admin_signed_by != null && data.admin_signed_by in deptEmails));
         }
         match /databases/{database}/documents {
           match /rapid_sessions/{sessionId} {
@@ -660,7 +664,11 @@ function getDeptAbbrFromEmail(email){
 function getPersonLabelFromEmail(email){
   if(!email) return null;
   const info = getRoleInfo(email);
-  if(info && info.role === "dept_head" && info.nama) return info.nama;
+  if(!info) return email.split("@")[0];
+  if(info.role === "dept_head" && info.nama) return info.nama;
+  // Kalau item ternyata dari Kepala Divisi/Admin Pusat (bukan dept_head biasa), tampilkan
+  // label departemen singkatnya (PROGDIST/ADMIN PUSAT) — bukan potongan mentah emailnya.
+  if(info.role === "kepala_divisi" || info.role === "super_admin") return getDeptAbbrFromEmail(email);
   return email.split("@")[0];
 }
 /* Item "antrian terbuka" — belum ditugaskan lewat Link Tugas siapa pun, dan belum direview
@@ -678,9 +686,13 @@ function getVisibleSubmissionsForRole(list, email){
     : new Set([email.toLowerCase()]);
   return list.filter(s=>{
     if(isOpenQueueItem(s)) return true;
-    const assignedToMe = s.assigned_by && allowed.has(s.assigned_by.toLowerCase());
+    // Begitu assigned_by SUDAH terisi, itu jadi SATU-SATUNYA penentu departemen "pemilik"
+    // item ini — mengabaikan admin_signed_by lama dari dept lain (mis. dari pengujian
+    // sebelum assigned_by diperbaiki manual oleh Admin Pusat), supaya item yang sudah
+    // ditugaskan tidak lagi "nyangkut" terlihat di dept yang bukan pemiliknya.
+    if(s.assigned_by) return allowed.has(s.assigned_by.toLowerCase());
     const reviewedByMe = s.admin_status && s.admin_signed_by && allowed.has(s.admin_signed_by.toLowerCase());
-    return assignedToMe || reviewedByMe;
+    return reviewedByMe;
   });
 }
 
