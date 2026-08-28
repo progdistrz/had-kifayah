@@ -649,6 +649,31 @@ function getRoleInfo(email){
   if(!email) return null;
   return ROLE_HIERARCHY[email.toLowerCase()] || null;
 }
+/* Kalau seorang pejabat/bawahan melakukan assessment SENDIRI lewat tombol di dashboardnya
+   (bukan lewat Link Penugasan biasa), pemberi tugasnya otomatis mengikuti struktur organisasi:
+   - Bawahan (mis. PRCB) -> pemberi tugas = Kepala Dept-nya (mis. SOSV), BUKAN dirinya sendiri.
+   - Kepala Dept (mis. SOSV) -> pemberi tugas = dirinya sendiri (tidak ada dept head di atasnya).
+   - Kepala Divisi -> null (tidak perlu pemberi tugas sama sekali, karena top leader). Route
+     Full/Rapid Assessment mengizinkan akses tanpa ASSIGNED_BY khusus untuk kasus ini (lihat
+     renderSurveyPage/renderRapidPage). */
+function computeSelfAssignedBy(email){
+  const info = getRoleInfo(email);
+  if(!info) return null;
+  if(info.role === "kepala_divisi") return null;
+  if(info.role === "dept_head"){
+    // Kembalikan key kanonis (huruf kecil) dari ROLE_HIERARCHY, bukan email mentah dari akun
+    // login (bisa saja beda kapitalisasi), supaya konsisten dgn nilai assigned_by di tempat lain.
+    const entry = Object.entries(ROLE_HIERARCHY).find(([e,i])=> e === email.toLowerCase() && i.role === "dept_head");
+    return entry ? entry[0] : email.toLowerCase();
+  }
+  if(info.role === "subordinate"){
+    const deptHeadEntry = Object.entries(ROLE_HIERARCHY).find(([e,i])=>
+      i.role === "dept_head" && (i.subordinates||[]).map(s=>s.toLowerCase()).includes(email.toLowerCase())
+    );
+    return deptHeadEntry ? deptHeadEntry[0] : null;
+  }
+  return null;
+}
 /* Label singkat departemen dari email ("Dept. Sosv" -> "SOSV") — dipakai penanda di
    dashboard Kepala Divisi supaya bisa membedakan asal tiap baris sekilas pandang. */
 function getDeptAbbrFromEmail(email){
@@ -1082,7 +1107,15 @@ function blankRow(kind){
 /* Halaman penahan jika ada yang mencoba membuka #/survey/full atau #/survey/rapid secara
    langsung tanpa lewat Link Penugasan — inilah penyebab data "Belum Ditugaskan" muncul di
    dashboard Kepala Divisi. Sejak diberlakukan, akses langsung tanpa ASSIGNED_BY diblokir di
-   sini supaya SETIAP assessment baru pasti tertaut ke pemberi tugas yang jelas. */
+   sini supaya SETIAP assessment baru pasti tertaut ke pemberi tugas yang jelas. Pengecualian:
+   Kepala Divisi yang sedang login boleh masuk tanpa ASSIGNED_BY sama sekali (lewat tombol
+   "Lakukan Assessment Sendiri" di dashboardnya) — karena beliau top leader, tidak perlu
+   pemberi tugas. */
+function isKepalaDivisiSelf(){
+  if(!auth || !auth.currentUser || auth.currentUser.isAnonymous) return false;
+  const info = getRoleInfo(auth.currentUser.email);
+  return !!(info && info.role === "kepala_divisi");
+}
 function renderNeedsAssignmentScreen(app, formName){
   const wrap = el("div",{});
   wrap.appendChild(topbar("public"));
@@ -1096,7 +1129,7 @@ function renderNeedsAssignmentScreen(app, formName){
   app.appendChild(wrap);
 }
 function renderSurveyPage(app){
-  if(!ASSIGNED_BY){ renderNeedsAssignmentScreen(app, "Full Assessment"); return; }
+  if(!ASSIGNED_BY && !isKepalaDivisiSelf()){ renderNeedsAssignmentScreen(app, "Full Assessment"); return; }
   resetFormState();
   ensureAnonAuth();
   const wrap = el("div",{});
@@ -1611,10 +1644,10 @@ function renderRapidPage(app){
   // selama tab browser belum ditutup/dimuat ulang. Untuk mengakhiri sesi, surveyor memakai
   // tombol "Akhiri Sesi" di kartu Data Program (renderProgramBar), yang me-reset secara eksplisit.
   const savedRef = loadActiveSessionRef();
-  if(!ASSIGNED_BY && !rapidSession && !savedRef){
+  if(!ASSIGNED_BY && !isKepalaDivisiSelf() && !rapidSession && !savedRef){
     // Tidak ada Link Penugasan DAN tidak sedang/pernah melanjutkan sesi apa pun — jangan
     // izinkan memulai sesi baru tanpa penugasan yang jelas (inilah sumber data "Belum
-    // Ditugaskan" di dashboard Kepala Divisi).
+    // Ditugaskan" di dashboard Kepala Divisi). Kepala Divisi sendiri dikecualikan.
     renderNeedsAssignmentScreen(app, "Rapid Assessment");
     return;
   }
@@ -2926,6 +2959,29 @@ function renderDashboard(shell, user){
     el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan")
   ));
   shell.appendChild(el("div",{id:"settings-panel"}));
+
+  if(roleInfo.role !== "super_admin"){
+    const selfAssignedBy = computeSelfAssignedBy(user.email);
+    const selfAssignDesc = roleInfo.role === "kepala_divisi"
+      ? "Sebagai Kepala Divisi, assessment yang Anda lakukan sendiri tidak memerlukan pemberi tugas."
+      : `Assessment yang Anda lakukan sendiri di sini otomatis tercatat dengan pemberi tugas: ${getDeptAbbrFromEmail(selfAssignedBy)}.`;
+    const startSelfAssessment = (route)=>{
+      ASSIGNED_BY = selfAssignedBy;
+      if(selfAssignedBy) saveAssignedByRef(selfAssignedBy); else clearAssignedByRef();
+      location.hash = route;
+    };
+    shell.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
+      el("div",{class:"step-head"},
+        el("div",{class:"eyebrow"}, "Assessment"),
+        el("h2",{style:"font-size:17px;"}, "Lakukan Assessment Sendiri"),
+        el("div",{class:"desc"}, `Jika Anda sendiri turun ke lapangan sebagai surveyor. ${selfAssignDesc}`)
+      ),
+      el("div",{style:"display:flex;gap:10px;flex-wrap:wrap;"},
+        el("button",{class:"btn btn-primary", type:"button", onclick:()=>startSelfAssessment("#/survey/full")}, "📋 Full Assessment"),
+        el("button",{class:"btn btn-primary", type:"button", onclick:()=>startSelfAssessment("#/survey/rapid")}, "⚡ Rapid Assessment"),
+      )
+    ));
+  }
 
   const myLink = location.origin + location.pathname + "#/tugas/" + encodeURIComponent(user.email);
   shell.appendChild(el("div",{class:"step-panel", style:"margin-bottom:20px;"},
