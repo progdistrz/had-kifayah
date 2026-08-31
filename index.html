@@ -505,6 +505,16 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
         function isRealAdmin() {
           return "email" in request.auth.token && request.auth.token.email != null;
         }
+        // Akun BARU yang didaftarkan Admin Pusat via "Kelola Akun" (koleksi org_roles) belum
+        // tentu ada di daftar email hardcoded di bawah — cek juga apakah dia "Officer" yang
+        // reportsTo salah satu dept head hardcoded tsb, supaya tetap kebagian akses dept-nya.
+        function reportsToDept(deptEmails) {
+          return exists(/databases/$(database)/documents/org_roles/$(request.auth.token.email)) &&
+            get(/databases/$(database)/documents/org_roles/$(request.auth.token.email)).data.reportsTo in deptEmails;
+        }
+        function isInDept(deptEmails) {
+          return request.auth.token.email in deptEmails || reportsToDept(deptEmails);
+        }
         // "Antrian terbuka" = belum ditugaskan lewat Link Tugas siapa pun (assigned_by) DAN
         // belum direview siapa pun (admin_status). PENTING: field ini SELALU disimpan oleh
         // aplikasi meski nilainya null (bukan dihilangkan) — jadi di sini juga wajib dicek
@@ -532,26 +542,28 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
           }
           match /assessments/{docId} {
             allow create, update: if request.auth != null; // termasuk anonymous (surveyor & calon peserta)
-            // Baca dibatasi per hirarki jabatan (harus SAMA PERSIS dengan ROLE_HIERARCHY di index.html):
+            // Baca dibatasi per hirarki jabatan (harus SAMA PERSIS dengan ROLE_HIERARCHY +
+            // DYNAMIC_ROLES di index.html):
             // - anonim (surveyor/calon peserta, token tanpa email) tetap boleh baca seperti sebelumnya
             //   (dipakai fitur Riwayat/Daftar Review milik surveyor).
             // - progdist@admin.erzet (Admin Pusat/developer) & admin@progdist.erzet (Kepala Divisi): baca semua.
             // - performed_by == email saya sendiri: pejabat yg SECARA PRIBADI mengisi lewat
             //   tombol "Lakukan Assessment Sendiri" selalu boleh baca hasil kerjanya sendiri,
             //   walau assigned_by mengarah ke atasannya (bukan dirinya).
-            // - dept head + 2 bawahannya: baca dokumen "antrian terbuka", ATAU yang assigned_by
-            //   (ditugaskan lewat Link Tugas) / admin_signed_by (sudah direview) berasal dari
-            //   salah satu email dalam dept yang sama.
+            // - dept head + bawahannya (termasuk Officer baru yg didaftarkan via Kelola Akun,
+            //   dicek lewat reportsTo di org_roles): baca dokumen "antrian terbuka", ATAU yang
+            //   assigned_by (ditugaskan lewat Link Tugas) / admin_signed_by (sudah direview)
+            //   berasal dari salah satu email dalam dept yang sama.
             allow read: if request.auth != null && (
               !isRealAdmin() ||
               request.auth.token.email == "progdist@admin.erzet" ||
               request.auth.token.email == "admin@progdist.erzet" ||
               (("performed_by" in resource.data) && resource.data.performed_by != null && resource.data.performed_by == request.auth.token.email) ||
-              (request.auth.token.email in ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"] &&
+              (isInDept(["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"]) &&
                 deptCanSee(resource.data, ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"])) ||
-              (request.auth.token.email in ["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"] &&
+              (isInDept(["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"]) &&
                 deptCanSee(resource.data, ["sch@progdist.erzet","iis@progdist.erzet","diki@progdist.erzet"])) ||
-              (request.auth.token.email in ["pem@progdist.erzet","mujib@progdist.erzet","rafi@progdist.erzet"] &&
+              (isInDept(["pem@progdist.erzet","mujib@progdist.erzet","rafi@progdist.erzet"]) &&
                 deptCanSee(resource.data, ["pem@progdist.erzet","mujib@progdist.erzet","rafi@progdist.erzet"]))
             );
             allow delete: if request.auth != null && isRealAdmin(); // khusus admin
@@ -567,8 +579,29 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
           match /admin_profiles/{uid} {
             // Tanda tangan admin (Pemberi Tugas) — tiap admin hanya boleh baca/tulis profilnya
             // sendiri (uid dokumen harus cocok dengan uid akun yang sedang login), dan wajib
-            // login email asli (bukan anonymous).
-            allow read, write: if request.auth != null && request.auth.uid == uid && isRealAdmin();
+            // login email asli (bukan anonymous). PENGECUALIAN: dokumen berid tetap
+            // "kepala_divisi_public" (salinan publik profil Kepala Divisi) boleh DIBACA siapa
+            // pun yang login (dipakai utk auto-sematkan ttd Kepala Divisi saat Kepala Dept
+            // survei mandiri), tapi hanya admin@progdist.erzet yang boleh MENULISnya. Admin
+            // Pusat (progdist@admin.erzet) juga boleh MENULIS profil siapa pun — dipakai utk
+            // pra-isi kontak & ttd akun baru saat mendaftarkan lewat fitur "Kelola Akun".
+            allow read: if uid == "kepala_divisi_public"
+              ? request.auth != null
+              : (request.auth != null && request.auth.uid == uid && isRealAdmin());
+            allow write: if request.auth != null && (
+              request.auth.token.email == "progdist@admin.erzet" ||
+              (uid == "kepala_divisi_public"
+                ? request.auth.token.email == "admin@progdist.erzet"
+                : (request.auth.uid == uid && isRealAdmin()))
+            );
+          }
+          match /org_roles/{email} {
+            // Akun pejabat/bawahan yang didaftarkan Admin Pusat lewat "Kelola Akun" — dibaca
+            // semua orang yang login (dipakai getRoleInfo/loadDynamicRoles semua akun,
+            // termasuk anonymous, karena isinya cuma metadata struktur organisasi, tidak
+            // sensitif), tapi HANYA Admin Pusat yang boleh mendaftarkan/mengubahnya.
+            allow read: if request.auth != null;
+            allow write: if request.auth != null && request.auth.token.email == "progdist@admin.erzet";
           }
         }
       }
@@ -649,9 +682,30 @@ const ROLE_HIERARCHY = {
   "mujib@progdist.erzet": { role:"subordinate", dept:"Dept. PEM" },
   "rafi@progdist.erzet": { role:"subordinate", dept:"Dept. PEM" },
 };
+/* Akun yang didaftarkan Admin Pusat lewat "Kelola Akun" (koleksi Firestore "org_roles")
+   dimuat ke sini saat aplikasi start (loadDynamicRoles()) — DIGABUNG dgn ROLE_HIERARCHY di
+   atas supaya seluruh logika hirarki (getRoleInfo, computeSelfAssignedBy, dst) memperlakukan
+   akun baru PERSIS sama seperti akun yang sudah ada sejak awal, tanpa perlu ubah kode lagi. */
+let DYNAMIC_ROLES = {};
+function getAllRoleEntries(){
+  return { ...ROLE_HIERARCHY, ...DYNAMIC_ROLES };
+}
 function getRoleInfo(email){
   if(!email) return null;
-  return ROLE_HIERARCHY[email.toLowerCase()] || null;
+  const key = email.toLowerCase();
+  return ROLE_HIERARCHY[key] || DYNAMIC_ROLES[key] || null;
+}
+/* Kumpulan bawahan seorang Kepala Dept — digabung dari DUA sumber supaya akun lama (array
+   "subordinates" di ROLE_HIERARCHY) dan akun baru (field "reportsTo" di org_roles) sama-sama
+   terhitung, apa pun kombinasi lama/barunya. */
+function getSubordinatesOf(deptHeadEmail){
+  const key = deptHeadEmail.toLowerCase();
+  const all = getAllRoleEntries();
+  const fromArray = ((all[key] && all[key].subordinates) || []).map(s=>s.toLowerCase());
+  const fromReportsTo = Object.entries(all)
+    .filter(([e,i]) => i.role === "subordinate" && i.reportsTo && i.reportsTo.toLowerCase() === key)
+    .map(([e]) => e);
+  return Array.from(new Set([...fromArray, ...fromReportsTo]));
 }
 /* Kalau seorang pejabat/bawahan melakukan assessment SENDIRI lewat tombol di dashboardnya
    (bukan lewat Link Penugasan biasa), pemberi tugasnya otomatis mengikuti struktur organisasi:
@@ -664,14 +718,13 @@ function computeSelfAssignedBy(email){
   const info = getRoleInfo(email);
   if(!info) return null;
   if(info.role === "kepala_divisi") return null;
-  if(info.role === "dept_head"){
-    // Kembalikan key kanonis (huruf kecil) dari ROLE_HIERARCHY, bukan email mentah dari akun
-    // login (bisa saja beda kapitalisasi), supaya konsisten dgn nilai assigned_by di tempat lain.
-    const entry = Object.entries(ROLE_HIERARCHY).find(([e,i])=> e === email.toLowerCase() && i.role === "dept_head");
-    return entry ? entry[0] : email.toLowerCase();
-  }
+  if(info.role === "dept_head") return email.toLowerCase();
   if(info.role === "subordinate"){
-    const deptHeadEntry = Object.entries(ROLE_HIERARCHY).find(([e,i])=>
+    // Akun baru (didaftarkan via Kelola Akun) langsung punya reportsTo — pakai itu duluan.
+    if(info.reportsTo) return info.reportsTo.toLowerCase();
+    // Akun lama: cari dept head yang array subordinates-nya memuat email ini.
+    const all = getAllRoleEntries();
+    const deptHeadEntry = Object.entries(all).find(([e,i])=>
       i.role === "dept_head" && (i.subordinates||[]).map(s=>s.toLowerCase()).includes(email.toLowerCase())
     );
     return deptHeadEntry ? deptHeadEntry[0] : null;
@@ -711,7 +764,7 @@ function getVisibleSubmissionsForRole(list, email){
   // Admin Pusat (developer web) & Kepala Divisi sama-sama melihat SELURUH assessment.
   if(info.role === "kepala_divisi" || info.role === "super_admin") return list;
   const allowed = info.role === "dept_head"
-    ? new Set([...info.subordinates.map(s=>s.toLowerCase()), email.toLowerCase()])
+    ? new Set([...getSubordinatesOf(email), email.toLowerCase()])
     : new Set([email.toLowerCase()]);
   return list.filter(s=>{
     if(isOpenQueueItem(s)) return true;
@@ -1135,6 +1188,52 @@ function getSelfAssessmentIdentity(){
   const info = getRoleInfo(auth.currentUser.email);
   if(!info || info.role === "super_admin") return null;
   return { email: auth.currentUser.email.toLowerCase(), nama: ADMIN_NAME, telp: ADMIN_TELP, signature: ADMIN_SIGNATURE };
+}
+/* Terjemahkan pilihan Kelayakan yang diisi surveyor ("Layak Dibantu" / "Perlu Perhatian
+   Khusus" / "Tidak Layak Dibantu", ejaan sedikit beda antara Full & Rapid Assessment) menjadi
+   nilai admin_status internal — dipakai utk auto-approval Kepala Dept yang survei mandiri. */
+function kelayakanToAdminStatus(kelayakanText){
+  if(!kelayakanText) return null;
+  const t = kelayakanText.toLowerCase();
+  if(t.includes("tidak layak")) return "rejected";
+  if(t.includes("perhatian")) return "attention";
+  if(t.includes("layak")) return "approved";
+  return null;
+}
+/* Salinan publik profil Kepala Divisi (admin_profiles/kepala_divisi_public) — SENGAJA dibuat
+   terpisah dari dokumen profil pribadinya (admin_profiles/<uid>, hanya bisa dibaca pemiliknya
+   sendiri) supaya SEMUA pejabat bisa membacanya (lihat Firestore Rules), khusus dipakai utk
+   menyematkan tanda tangan/nama/telp Kepala Divisi secara otomatis ke assessment yang
+   di-auto-approve saat Kepala Dept melakukan survei mandiri (lihat submitAssessment &
+   submitDirect). Ditulis otomatis tiap kali Kepala Divisi menyimpan profilnya sendiri.
+   Mengembalikan null jika Kepala Divisi belum pernah mengisi profil sama sekali. */
+async function fetchKepalaDivisiPublicProfile(){
+  if(FIREBASE_NOT_CONFIGURED) return null;
+  try{
+    const doc = await db.collection("admin_profiles").doc("kepala_divisi_public").get();
+    return doc.exists ? doc.data() : null;
+  } catch(e){ return null; }
+}
+/* Kalau yang sedang survei mandiri adalah Kepala Dept (SOSV/SCH/PEM) sendiri — bukan Kepala
+   Divisi/bawahan — Kelayakan yang mereka isi otomatis JUGA jadi Status Admin (tak perlu lagi
+   approval terpisah dari Kepala Divisi), namun PDF tetap menampilkan tanda tangan/nama/telp
+   Kepala Divisi sbg Pemberi Tugas resmi (bukan tanda tangan Kepala Dept itu sendiri). */
+async function computeAutoApprovalPayload(kelayakanText){
+  const selfId = getSelfAssessmentIdentity();
+  if(!selfId) return null;
+  const selfRole = getRoleInfo(selfId.email);
+  if(!selfRole || selfRole.role !== "dept_head") return null;
+  const autoStatus = kelayakanToAdminStatus(kelayakanText);
+  if(!autoStatus) return null;
+  const kd = await fetchKepalaDivisiPublicProfile();
+  return {
+    admin_status: autoStatus,
+    admin_signed_by: "admin@progdist.erzet",
+    admin_signed_by_nama: kd?.nama || null,
+    admin_signed_by_telp: kd?.telp || null,
+    admin_signature: kd?.signature || null,
+    admin_signed_at: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
+  };
 }
 function renderNeedsAssignmentScreen(app, formName){
   const wrap = el("div",{});
@@ -1597,6 +1696,11 @@ async function submitAssessment(body){
     performed_by: getSelfAssessmentIdentity()?.email || null,
     submittedAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
   };
+  // Kepala Dept (SOSV/SCH/PEM) yang survei mandiri: Kelayakan yang mereka isi otomatis jadi
+  // Status Admin juga, tanpa perlu approval terpisah — tapi PDF tetap pakai identitas Kepala
+  // Divisi sbg Pemberi Tugas resmi.
+  const autoApproval = await computeAutoApprovalPayload(payload.kelayakan);
+  if(autoApproval) Object.assign(payload, autoApproval);
 
   try{
     await ensureAnonAuth();
@@ -2520,6 +2624,11 @@ async function submitDirect(shell){
     status_review: "pending",
     submittedAt: FIREBASE_NOT_CONFIGURED ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(),
   };
+  // Kepala Dept (SOSV/SCH/PEM) yang survei mandiri: Kelayakan yang mereka isi otomatis jadi
+  // Status Admin juga, tanpa perlu approval terpisah — tapi PDF tetap pakai identitas Kepala
+  // Divisi sbg Pemberi Tugas resmi.
+  const autoApproval = await computeAutoApprovalPayload(payload.kelayakan);
+  if(autoApproval) Object.assign(payload, autoApproval);
 
   try{
     await ensureAnonAuth();
@@ -3030,6 +3139,11 @@ function renderDashboard(shell, user){
       el("button",{class:"btn btn-ghost", type:"button", onclick: copyMyLink}, "🔗 Copy Link Assessment Untuk Surveyor"),
     );
   }
+  if(roleInfo.role === "super_admin"){
+    headerButtons.push(
+      el("button",{class:"btn btn-primary", type:"button", onclick: ()=>toggleManageAccountsPanel()}, "👤 Kelola Akun"),
+    );
+  }
   shell.appendChild(el("div",{class:"dash-head"},
     el("div",{},
       el("h1",{},"Dashboard Assessment"),
@@ -3039,6 +3153,9 @@ function renderDashboard(shell, user){
       el("button",{class:"btn btn-ghost", onclick:()=>toggleSettingsPanel()}, "⚙️ Pengaturan"),
     )
   ));
+  if(roleInfo.role === "super_admin"){
+    shell.appendChild(el("div",{id:"manage-accounts-panel"}));
+  }
   shell.appendChild(el("div",{id:"settings-panel"}));
 
   const statRow = el("div",{class:"stat-row"});
@@ -3261,6 +3378,186 @@ function resetFilters(){
   renderTable();
 }
 
+/* ================================================================
+   KELOLA AKUN — khusus Admin Pusat (super_admin), mendaftarkan login baru
+   ================================================================ */
+/* Membuat akun Firebase Auth (email+password) baru TANPA mengganti sesi login Admin Pusat
+   yang sedang aktif. Trik: pakai instance Firebase App KEDUA yang terpisah — proses
+   createUserWithEmailAndPassword otomatis login sebagai user itu, tapi HANYA di instance
+   kedua ini, sesi utama (instance pertama, tempat Admin Pusat login) tidak tersentuh sama
+   sekali. Instance kedua dibuang begitu selesai dipakai. */
+async function createNewLoginAccount(email, password){
+  const secondaryApp = firebase.initializeApp(firebaseConfig, "AccountCreation-" + Date.now());
+  try{
+    const cred = await secondaryApp.auth().createUserWithEmailAndPassword(email, password);
+    const newUid = cred.user.uid;
+    await secondaryApp.auth().signOut();
+    await secondaryApp.delete();
+    return newUid;
+  } catch(err){
+    try{ await secondaryApp.delete(); } catch(e){ /* abaikan */ }
+    throw err;
+  }
+}
+function toggleManageAccountsPanel(){
+  const box = $("#manage-accounts-panel");
+  if(!box) return;
+  if(box.childElementCount > 0){ box.innerHTML = ""; return; }
+  renderManageAccountsPanel(box);
+}
+async function renderManageAccountsPanel(box){
+  box.innerHTML = "";
+  const panel = el("div",{class:"step-panel", style:"margin-bottom:20px;"},
+    el("div",{class:"step-head"},
+      el("div",{class:"eyebrow"}, "Admin Pusat"),
+      el("h2",{style:"font-size:17px;"}, "Kelola Akun Pejabat"),
+      el("div",{class:"desc"}, "Daftarkan login baru untuk pejabat/bawahan. Akun langsung bisa dipakai login begitu disimpan — bagikan email & kata sandi di bawah ini kepada pemiliknya secara pribadi (mis. lewat pesan langsung, bukan channel terbuka).")
+    )
+  );
+
+  // Level Jabatan menentukan field apa saja yang relevan (Departemen Atasan hanya utk Officer).
+  const levelSel = el("select",{id:"acc-level"},
+    el("option",{value:"kepala_divisi"}, "Divisi (Kepala Divisi)"),
+    el("option",{value:"dept_head"}, "Departemen (Kepala Departemen)"),
+    el("option",{value:"subordinate", selected:"selected"}, "Officer (Bawahan)"),
+  );
+  const deptHeadOptions = Object.entries(getAllRoleEntries()).filter(([e,i])=>i.role==="dept_head");
+  const reportsToSel = el("select",{id:"acc-reportsto"},
+    el("option",{value:""}, "Pilih Departemen Atasan..."),
+    ...deptHeadOptions.map(([e,i])=> el("option",{value:e}, `${i.dept||e} (${i.nama||e})`)),
+  );
+  const reportsToWrap = el("div",{class:"field-tight", id:"acc-reportsto-wrap"}, el("label",{}, "Departemen Atasan (Officer melapor ke siapa)"), reportsToSel);
+  const namaJabatanWrap = el("div",{class:"field-tight", id:"acc-namajabatan-wrap"}, el("label",{}, "Nama Jabatan / Departemen"), el("input",{type:"text", id:"acc-namajabatan", placeholder:"Contoh: Dept. Logistik"}));
+
+  const updateVisibleFields = ()=>{
+    const lv = levelSel.value;
+    reportsToWrap.style.display = lv === "subordinate" ? "" : "none";
+    namaJabatanWrap.style.display = lv === "dept_head" ? "" : "none";
+  };
+  levelSel.addEventListener("change", updateVisibleFields);
+
+  panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Level Jabatan"), levelSel));
+  panel.appendChild(namaJabatanWrap);
+  panel.appendChild(reportsToWrap);
+  panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Nama Pejabat"), el("input",{type:"text", id:"acc-nama", placeholder:"Contoh: Ahmad Fauzi"})));
+  panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Kontak Pejabat (No. Telepon)"), el("input",{type:"tel", id:"acc-telp", placeholder:"Contoh: 081234567890"})));
+  panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Email Login"), el("input",{type:"email", id:"acc-email", placeholder:"nama@progdist.erzet"})));
+  const genPassBtn = el("button",{class:"inline-btn", type:"button", style:"margin-top:0;"}, "Buat Otomatis");
+  const passInput = el("input",{type:"text", id:"acc-password", placeholder:"Minimal 6 karakter"});
+  genPassBtn.addEventListener("click", ()=>{ passInput.value = Math.random().toString(36).slice(-4) + Math.random().toString(36).slice(-4).toUpperCase() + Math.floor(Math.random()*90+10); });
+  panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Kata Sandi Awal"), el("div",{style:"display:flex;gap:8px;"}, passInput, genPassBtn)));
+
+  // Upload TTD Pejabat — sama seperti panel "Kontak & Tanda Tangan Saya", dinormalisasi jadi
+  // gambar berlatar putih supaya tercetak jelas di PDF.
+  let uploadedSigDataUrl = null;
+  const sigPreview = el("div",{style:"margin-top:8px;"});
+  const sigUploadInput = el("input",{type:"file", accept:"image/png,image/jpeg,image/webp", id:"acc-sig-upload"});
+  sigUploadInput.addEventListener("change", (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const maxW = 400;
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * scale; canvas.height = img.height * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        uploadedSigDataUrl = canvas.toDataURL("image/png");
+        sigPreview.innerHTML = "";
+        sigPreview.appendChild(el("img",{src: uploadedSigDataUrl, style:"max-width:220px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;"}));
+      };
+      img.onerror = ()=> toast("Gagal membaca gambar — pastikan file berformat PNG/JPG/WEBP yang valid.");
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Upload TTD Pejabat (gambar)"), sigUploadInput, sigPreview));
+
+  const resultBox = el("div",{id:"acc-result"});
+  panel.appendChild(resultBox);
+
+  panel.appendChild(el("button",{class:"btn btn-primary", type:"button", style:"margin-top:12px;", onclick: async ()=>{
+    const level = levelSel.value;
+    const namaJabatan = $("#acc-namajabatan").value.trim();
+    const reportsTo = reportsToSel.value;
+    const nama = $("#acc-nama").value.trim();
+    const telp = $("#acc-telp").value.trim();
+    const email = $("#acc-email").value.trim().toLowerCase();
+    const password = passInput.value.trim();
+
+    if(!nama){ toast("Mohon isi Nama Pejabat."); return; }
+    if(!telp || !isValidPhone(telp)){ toast("Mohon isi Kontak Pejabat dengan format angka yang benar (9-15 digit)."); return; }
+    if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("Mohon isi Email Login yang valid."); return; }
+    if(!password || password.length < 6){ toast("Kata Sandi Awal minimal 6 karakter."); return; }
+    if(level === "dept_head" && !namaJabatan){ toast("Mohon isi Nama Jabatan / Departemen."); return; }
+    if(level === "subordinate" && !reportsTo){ toast("Mohon pilih Departemen Atasan untuk Officer."); return; }
+    if(getRoleInfo(email)){ toast("Email ini sudah terdaftar dalam struktur akses."); return; }
+
+    try{
+      const newUid = await createNewLoginAccount(email, password);
+
+      const roleDoc = { role: level, nama, telp, createdBy: auth.currentUser.email, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+      if(level === "dept_head") roleDoc.dept = namaJabatan;
+      if(level === "subordinate"){
+        roleDoc.reportsTo = reportsTo;
+        roleDoc.dept = (getRoleInfo(reportsTo)||{}).dept || "";
+      }
+      await db.collection("org_roles").doc(email).set(roleDoc);
+
+      // Pre-isi profil kontak & ttd akun baru supaya langsung siap dipakai tanpa perlu setup ulang.
+      await db.collection("admin_profiles").doc(newUid).set({
+        nama, telp, signature: uploadedSigDataUrl || null, email,
+        updated_at: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+
+      DYNAMIC_ROLES[email] = roleDoc; // supaya langsung dikenali di sesi berjalan tanpa reload
+
+      resultBox.innerHTML = "";
+      resultBox.appendChild(el("div",{class:"setup-banner", style:"margin-top:14px;"},
+        el("div",{style:"font-weight:700;margin-bottom:6px;"}, "✅ Akun berhasil didaftarkan — bagikan kredensial ini secara pribadi:"),
+        el("div",{}, "Email: ", el("strong",{}, email)),
+        el("div",{}, "Kata Sandi: ", el("strong",{}, password)),
+      ));
+      toast("Akun baru berhasil didaftarkan.");
+    } catch(err){
+      const msg = err && err.code === "auth/email-already-in-use" ? "Email ini sudah terdaftar di Firebase Authentication."
+        : err && err.code === "auth/weak-password" ? "Kata sandi terlalu lemah (minimal 6 karakter)."
+        : err && err.message ? err.message : String(err);
+      toast("Gagal mendaftarkan akun: " + msg);
+    }
+  }}, "Daftarkan Akun"));
+
+  updateVisibleFields();
+  box.appendChild(panel);
+
+  // Daftar akun yang sudah didaftarkan lewat fitur ini (org_roles), utk dipantau Admin Pusat.
+  if(!FIREBASE_NOT_CONFIGURED){
+    try{
+      const snap = await db.collection("org_roles").orderBy("createdAt","desc").get();
+      if(!snap.empty){
+        const listPanel = el("div",{class:"step-panel"},
+          el("div",{class:"step-head"}, el("h2",{style:"font-size:15px;"}, "Akun yang Sudah Didaftarkan")),
+        );
+        snap.docs.forEach(doc=>{
+          const d = doc.data();
+          const levelLabel = d.role === "kepala_divisi" ? "Divisi" : d.role === "dept_head" ? "Departemen" : "Officer";
+          listPanel.appendChild(el("div",{class:"review-item"},
+            el("div",{},
+              el("div",{class:"review-item-name"}, d.nama || doc.id),
+              el("div",{class:"review-item-sub"}, `${levelLabel} · ${d.dept||""} · ${doc.id}`),
+            ),
+            el("div",{class:"mono", style:"font-size:12px;"}, d.telp || "-")
+          ));
+        });
+        box.appendChild(listPanel);
+      }
+    } catch(e){ /* daftar riwayat opsional, jangan ganggu form kalau gagal dimuat */ }
+  }
+}
 async function toggleSettingsPanel(){
   const box = $("#settings-panel");
   if(!box) return;
@@ -3350,6 +3647,17 @@ async function toggleSettingsPanel(){
         if(payload.signature) ADMIN_SIGNATURE = payload.signature;
         ADMIN_NAME = namaVal;
         ADMIN_TELP = telpVal;
+        // Kalau yang login Kepala Divisi, simpan salinan publik (bisa dibaca semua pejabat)
+        // supaya bisa otomatis disematkan sbg Pemberi Tugas resmi saat Kepala Dept survei mandiri.
+        const myRole = getRoleInfo(auth.currentUser.email);
+        if(myRole && myRole.role === "kepala_divisi"){
+          try{
+            await db.collection("admin_profiles").doc("kepala_divisi_public").set({
+              nama: namaVal, telp: telpVal, signature: ADMIN_SIGNATURE || null,
+              updated_at: firebase.firestore.FieldValue.serverTimestamp(),
+            }, {merge:true});
+          } catch(e){ /* jangan gagalkan simpan profil pribadi kalau salinan publik gagal ditulis */ }
+        }
         const nameEl = $("#topbar-admin-name");
         if(nameEl) nameEl.textContent = namaVal;
         toast("Pengaturan tersimpan.");
@@ -4235,7 +4543,23 @@ function drawRapidAssessmentPDF(doc, sub){
 /* ================================================================
    INIT
    ================================================================ */
-route();
+/* Muat akun yang didaftarkan Admin Pusat (koleksi "org_roles") SEBELUM route() pertama kali
+   dipanggil, supaya getRoleInfo() langsung mengenali akun baru sejak awal (mis. saat admin
+   yang baru didaftarkan langsung login). Kegagalan (mis. Firebase belum dikonfigurasi/offline)
+   sengaja tidak menghentikan aplikasi — akun lama (ROLE_HIERARCHY hardcoded) tetap berfungsi. */
+async function loadDynamicRoles(){
+  if(FIREBASE_NOT_CONFIGURED) return;
+  try{
+    const snap = await db.collection("org_roles").get();
+    const roles = {};
+    snap.docs.forEach(doc=>{ roles[doc.id] = doc.data(); });
+    DYNAMIC_ROLES = roles;
+  } catch(e){ console.warn("Gagal memuat akun dinamis (org_roles):", e); }
+}
+(async function initApp(){
+  await loadDynamicRoles();
+  route();
+})();
 </script>
 </body>
 </html>
