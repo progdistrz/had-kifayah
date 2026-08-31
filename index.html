@@ -3590,7 +3590,7 @@ async function renderManageAccountsPanel(box){
     try{
       const newUid = await createNewLoginAccount(email, password);
 
-      const roleDoc = { role: level, nama, telp, createdBy: auth.currentUser.email, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+      const roleDoc = { role: level, nama, telp, uid: newUid, createdBy: auth.currentUser.email, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
       if(level === "dept_head"){ roleDoc.dept = namaJabatan; roleDoc.belongsToDivision = divisi; }
       if(level === "subordinate"){
         roleDoc.reportsTo = reportsTo;
@@ -3613,6 +3613,7 @@ async function renderManageAccountsPanel(box){
         el("div",{}, "Kata Sandi: ", el("strong",{}, password)),
       ));
       toast("Akun baru berhasil didaftarkan.");
+      await renderAccountsList(box);
     } catch(err){
       const msg = err && err.code === "auth/email-already-in-use" ? "Email ini sudah terdaftar di Firebase Authentication."
         : err && err.code === "auth/weak-password" ? "Kata sandi terlalu lemah (minimal 6 karakter)."
@@ -3623,31 +3624,141 @@ async function renderManageAccountsPanel(box){
 
   updateVisibleFields();
   box.appendChild(panel);
-
-  // Daftar akun yang sudah didaftarkan lewat fitur ini (org_roles), utk dipantau Admin Pusat.
-  if(!FIREBASE_NOT_CONFIGURED){
-    try{
-      const snap = await db.collection("org_roles").orderBy("createdAt","desc").get();
-      if(!snap.empty){
-        const listPanel = el("div",{class:"step-panel"},
-          el("div",{class:"step-head"}, el("h2",{style:"font-size:15px;"}, "Akun yang Sudah Didaftarkan")),
-        );
-        snap.docs.forEach(doc=>{
-          const d = doc.data();
-          const levelLabel = d.role === "kepala_divisi" ? "Divisi" : d.role === "dept_head" ? "Departemen" : "Officer";
-          listPanel.appendChild(el("div",{class:"review-item"},
-            el("div",{},
-              el("div",{class:"review-item-name"}, d.nama || doc.id),
-              el("div",{class:"review-item-sub"}, `${levelLabel} · ${d.dept||""} · ${doc.id}`),
-            ),
-            el("div",{class:"mono", style:"font-size:12px;"}, d.telp || "-")
-          ));
-        });
-        box.appendChild(listPanel);
-      }
-    } catch(e){ /* daftar riwayat opsional, jangan ganggu form kalau gagal dimuat */ }
-  }
+  await renderAccountsList(box);
 }
+/* Daftar akun yang sudah didaftarkan lewat "Kelola Akun" (org_roles), + kemampuan EDIT
+   (nama, kontak, tanda tangan, dan penempatan struktur — Divisi utk Departemen / Departemen
+   Atasan utk Officer). Email login & password TIDAK bisa diubah dari sini (identitas akun
+   Firebase Auth) — kalau perlu ganti, daftarkan akun baru & nonaktifkan yang lama secara
+   manual di Firebase Console. Dipisah jadi fungsi sendiri supaya bisa dipanggil ulang
+   (refresh) setelah mendaftarkan akun baru ATAU setelah menyimpan perubahan edit. */
+async function renderAccountsList(box){
+  const old = $("#accounts-list-panel");
+  if(old) old.remove();
+  if(FIREBASE_NOT_CONFIGURED) return;
+  try{
+    const snap = await db.collection("org_roles").orderBy("createdAt","desc").get();
+    if(snap.empty) return;
+    const listPanel = el("div",{class:"step-panel", id:"accounts-list-panel"},
+      el("div",{class:"step-head"}, el("h2",{style:"font-size:15px;"}, "Akun yang Sudah Didaftarkan")),
+    );
+    snap.docs.forEach(doc=>{
+      const d = doc.data();
+      const levelLabel = d.role === "kepala_divisi" ? "Divisi" : d.role === "dept_head" ? "Departemen" : "Officer";
+      const row = el("div",{class:"review-item"},
+        el("div",{},
+          el("div",{class:"review-item-name"}, d.nama || doc.id),
+          el("div",{class:"review-item-sub"}, `${levelLabel} · ${d.dept||""} · ${doc.id}`),
+        ),
+        el("div",{style:"display:flex;align-items:center;gap:10px;"},
+          el("div",{class:"mono", style:"font-size:12px;"}, d.telp || "-"),
+          el("button",{class:"inline-btn", type:"button", style:"margin-top:0;", onclick:()=> openEditAccountForm(listPanel, doc.id, d)}, "✏️ Edit"),
+        )
+      );
+      row.id = "acc-row-" + doc.id.replace(/[^a-z0-9]/gi,"_");
+      listPanel.appendChild(row);
+    });
+    box.appendChild(listPanel);
+  } catch(e){ /* daftar riwayat opsional, jangan ganggu form kalau gagal dimuat */ }
+}
+/* Form edit inline — muncul menggantikan baris akun yang diklik "✏️ Edit". Field level
+   jabatan (Divisi/Departemen/Officer) SENGAJA tidak bisa diubah di sini (mengubah level
+   berarti mengubah seluruh rantai bawahan-nya, terlalu berisiko utk form sederhana ini) —
+   kalau perlu pindah level, hapus & daftarkan ulang akunnya. */
+function openEditAccountForm(listPanel, email, data){
+  const rowEl = $("#acc-row-" + email.replace(/[^a-z0-9]/gi,"_"));
+  if(!rowEl) return;
+  const form = el("div",{class:"field", style:"background:var(--surface-sunken);border-radius:10px;padding:14px;margin:6px 0;"});
+
+  form.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Nama Pejabat"), el("input",{type:"text", id:"edit-nama", value: data.nama || ""})));
+  form.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Kontak Pejabat (No. Telepon)"), el("input",{type:"tel", id:"edit-telp", value: data.telp || ""})));
+
+  let divisiSel = null, namaJabatanInput = null, reportsToSel = null;
+  const allEntries = getAllRoleEntries();
+  if(data.role === "dept_head"){
+    namaJabatanInput = el("input",{type:"text", id:"edit-namajabatan", value: data.dept || ""});
+    form.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Nama Jabatan / Departemen"), namaJabatanInput));
+    const divisiOptions = Object.entries(allEntries).filter(([e,i])=>i.role==="kepala_divisi");
+    divisiSel = el("select",{id:"edit-divisi"},
+      ...divisiOptions.map(([e,i])=> el("option",{value:e, selected: e===(data.belongsToDivision||"admin@progdist.erzet")?"selected":null}, `${i.nama||e} (${e})`)),
+    );
+    form.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Divisi"), divisiSel));
+  }
+  if(data.role === "subordinate"){
+    const deptHeadOptions = Object.entries(allEntries).filter(([e,i])=>i.role==="dept_head");
+    reportsToSel = el("select",{id:"edit-reportsto"},
+      ...deptHeadOptions.map(([e,i])=> el("option",{value:e, selected: e===(data.reportsTo||"").toLowerCase()?"selected":null}, `${i.dept||e} (${i.nama||e})`)),
+    );
+    form.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Departemen Atasan"), reportsToSel));
+  }
+
+  let newSigDataUrl = null;
+  const sigPreview = el("div",{style:"margin-top:8px;"});
+  const sigInput = el("input",{type:"file", accept:"image/png,image/jpeg,image/webp"});
+  sigInput.addEventListener("change", (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const maxW = 400, scale = Math.min(1, maxW/img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width*scale; canvas.height = img.height*scale;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        newSigDataUrl = canvas.toDataURL("image/png");
+        sigPreview.innerHTML = "";
+        sigPreview.appendChild(el("img",{src:newSigDataUrl, style:"max-width:180px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;"}));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  form.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Ganti TTD Pejabat (opsional — kosongkan jika tidak ingin mengubah)"), sigInput, sigPreview));
+
+  const btnRow = el("div",{style:"display:flex;gap:8px;margin-top:10px;"});
+  btnRow.appendChild(el("button",{class:"btn btn-primary", type:"button", onclick: async ()=>{
+    const nama = $("#edit-nama").value.trim();
+    const telp = $("#edit-telp").value.trim();
+    if(!nama){ toast("Mohon isi Nama Pejabat."); return; }
+    if(!telp || !isValidPhone(telp)){ toast("Mohon isi Kontak Pejabat dengan format angka yang benar (9-15 digit)."); return; }
+
+    const updatePayload = { nama, telp };
+    if(data.role === "dept_head"){
+      const namaJabatan = namaJabatanInput.value.trim();
+      if(!namaJabatan){ toast("Mohon isi Nama Jabatan / Departemen."); return; }
+      updatePayload.dept = namaJabatan;
+      updatePayload.belongsToDivision = divisiSel.value;
+    }
+    if(data.role === "subordinate"){
+      updatePayload.reportsTo = reportsToSel.value;
+      updatePayload.dept = (getRoleInfo(reportsToSel.value)||{}).dept || "";
+    }
+    try{
+      await db.collection("org_roles").doc(email).update(updatePayload);
+      DYNAMIC_ROLES[email] = { ...DYNAMIC_ROLES[email], ...updatePayload };
+
+      // Ikut perbarui profil kontak (& ttd kalau diganti) akun tsb — hanya bisa kalau uid-nya
+      // diketahui (akun yang didaftarkan sebelum fitur edit ini ada mungkin belum punya uid
+      // tersimpan; kalau begitu, lewati bagian ini, sisanya tetap tersimpan seperti biasa).
+      if(data.uid){
+        const profilePayload = { nama, telp, updated_at: firebase.firestore.FieldValue.serverTimestamp() };
+        if(newSigDataUrl) profilePayload.signature = newSigDataUrl;
+        await db.collection("admin_profiles").doc(data.uid).set(profilePayload, {merge:true});
+      }
+
+      toast("Perubahan akun tersimpan.");
+      await renderAccountsList(listPanel.parentElement);
+    } catch(err){ toast("Gagal menyimpan perubahan: " + friendlyFirestoreError(err)); }
+  }}, "Simpan Perubahan"));
+  btnRow.appendChild(el("button",{class:"btn btn-ghost", type:"button", onclick:()=>{ form.remove(); }}, "Batal"));
+  form.appendChild(btnRow);
+
+  rowEl.appendChild(form);
+}
+
 async function toggleSettingsPanel(){
   const box = $("#settings-panel");
   if(!box) return;
