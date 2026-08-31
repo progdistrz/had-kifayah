@@ -536,6 +536,37 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
               : (("admin_status" in data) && data.admin_status != null &&
                   ("admin_signed_by" in data) && data.admin_signed_by != null && data.admin_signed_by in deptEmails));
         }
+        // ---- Dukungan Divisi BARU (didaftarkan Admin Pusat lewat "Kelola Akun", di luar
+        // Divisi Progdist lama yang hardcoded admin@progdist.erzet di atas). HARUS SAMA
+        // PERSIS dengan getDivisionOf()/getVisibleSubmissionsForRole() di index.html. ----
+        function orgRoleOf(email) {
+          return exists(/databases/$(database)/documents/org_roles/$(email))
+            ? get(/databases/$(database)/documents/org_roles/$(email)).data
+            : null;
+        }
+        function isDynamicKepalaDivisi() {
+          let r = orgRoleOf(request.auth.token.email);
+          return r != null && r.role == "kepala_divisi";
+        }
+        // Divisi tempat email (Kepala Dept/Officer) bernaung, ditelusuri dari org_roles.
+        function ownerDivisionIs(ownerEmail, myDivisionEmail) {
+          let r = orgRoleOf(ownerEmail);
+          return r != null && (
+            (r.role == "dept_head" && ((("belongsToDivision" in r) ? r.belongsToDivision : "admin@progdist.erzet") == myDivisionEmail)) ||
+            (r.role == "subordinate" && "reportsTo" in r && exists(/databases/$(database)/documents/org_roles/$(r.reportsTo)) &&
+              ((("belongsToDivision" in get(/databases/$(database)/documents/org_roles/$(r.reportsTo)).data)
+                ? get(/databases/$(database)/documents/org_roles/$(r.reportsTo)).data.belongsToDivision
+                : "admin@progdist.erzet") == myDivisionEmail))
+          );
+        }
+        function dynamicDivisionCanSee(data) {
+          return isDynamicKepalaDivisi() && (
+            isOpenQueue(data) ||
+            (("performed_by" in data) && data.performed_by != null && ownerDivisionIs(data.performed_by, request.auth.token.email)) ||
+            (("assigned_by" in data) && data.assigned_by != null && ownerDivisionIs(data.assigned_by, request.auth.token.email)) ||
+            (("admin_status" in data) && data.admin_status != null && ("admin_signed_by" in data) && data.admin_signed_by != null && ownerDivisionIs(data.admin_signed_by, request.auth.token.email))
+          );
+        }
         match /databases/{database}/documents {
           match /rapid_sessions/{sessionId} {
             allow read, create: if request.auth != null; // termasuk anonymous
@@ -546,7 +577,12 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
             // DYNAMIC_ROLES di index.html):
             // - anonim (surveyor/calon peserta, token tanpa email) tetap boleh baca seperti sebelumnya
             //   (dipakai fitur Riwayat/Daftar Review milik surveyor).
-            // - progdist@admin.erzet (Admin Pusat/developer) & admin@progdist.erzet (Kepala Divisi): baca semua.
+            // - progdist@admin.erzet (Admin Pusat/developer): baca semua divisi.
+            // - admin@progdist.erzet (Kepala Divisi Progdist, divisi lama/hardcoded): baca semua
+            //   data Divisi Progdist (blm dibatasi per-divisi krn ini SATU-SATUNYA divisi saat
+            //   Rules ini ditulis — kalau ke depan perlu dibatasi juga, ganti baris ini pakai
+            //   dynamicDivisionCanSee-style seperti Divisi baru di bawah).
+            // - Kepala Divisi BARU (didaftarkan via Kelola Akun): baca HANYA data divisinya sendiri.
             // - performed_by == email saya sendiri: pejabat yg SECARA PRIBADI mengisi lewat
             //   tombol "Lakukan Assessment Sendiri" selalu boleh baca hasil kerjanya sendiri,
             //   walau assigned_by mengarah ke atasannya (bukan dirinya).
@@ -558,6 +594,7 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
               !isRealAdmin() ||
               request.auth.token.email == "progdist@admin.erzet" ||
               request.auth.token.email == "admin@progdist.erzet" ||
+              dynamicDivisionCanSee(resource.data) ||
               (("performed_by" in resource.data) && resource.data.performed_by != null && resource.data.performed_by == request.auth.token.email) ||
               (isInDept(["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"]) &&
                 deptCanSee(resource.data, ["sosv@progdist.erzet","prcb@progdist.erzet","sosv.admin@progdist.erzet"])) ||
@@ -672,9 +709,9 @@ const COLLECTION = "assessments";
 const ROLE_HIERARCHY = {
   "progdist@admin.erzet": { role:"super_admin", nama:"Admin Pusat" },
   "admin@progdist.erzet": { role:"kepala_divisi", nama:"Kepala Divisi" },
-  "sosv@progdist.erzet": { role:"dept_head", dept:"Dept. Sosv", nama:"SOSV", subordinates:["prcb@progdist.erzet","sosv.admin@progdist.erzet"] },
-  "sch@progdist.erzet": { role:"dept_head", dept:"Dept. Sch", nama:"SCH", subordinates:["iis@progdist.erzet","diki@progdist.erzet"] },
-  "pem@progdist.erzet": { role:"dept_head", dept:"Dept. PEM", nama:"PEM", subordinates:["mujib@progdist.erzet","rafi@progdist.erzet"] },
+  "sosv@progdist.erzet": { role:"dept_head", dept:"Dept. Sosv", nama:"SOSV", belongsToDivision:"admin@progdist.erzet", subordinates:["prcb@progdist.erzet","sosv.admin@progdist.erzet"] },
+  "sch@progdist.erzet": { role:"dept_head", dept:"Dept. Sch", nama:"SCH", belongsToDivision:"admin@progdist.erzet", subordinates:["iis@progdist.erzet","diki@progdist.erzet"] },
+  "pem@progdist.erzet": { role:"dept_head", dept:"Dept. PEM", nama:"PEM", belongsToDivision:"admin@progdist.erzet", subordinates:["mujib@progdist.erzet","rafi@progdist.erzet"] },
   "prcb@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv" },
   "sosv.admin@progdist.erzet": { role:"subordinate", dept:"Dept. Sosv" },
   "iis@progdist.erzet": { role:"subordinate", dept:"Dept. Sch" },
@@ -707,6 +744,29 @@ function getSubordinatesOf(deptHeadEmail){
     .map(([e]) => e);
   return Array.from(new Set([...fromArray, ...fromReportsTo]));
 }
+/* Kumpulan Kepala Dept yang berada di bawah sebuah Divisi tertentu — dept lama (3 hardcoded:
+   Sosv/Sch/PEM) semuanya default ke Divisi Progdist (admin@progdist.erzet) lewat
+   belongsToDivision, dept baru (didaftarkan via Kelola Akun) eksplisit memilih Divisi-nya. */
+function getDeptHeadsOfDivision(divisionEmail){
+  const key = divisionEmail.toLowerCase();
+  const all = getAllRoleEntries();
+  return Object.entries(all)
+    .filter(([e,i]) => i.role === "dept_head" && ((i.belongsToDivision && i.belongsToDivision.toLowerCase()) || "admin@progdist.erzet") === key)
+    .map(([e]) => e);
+}
+/* Divisi tempat seorang pejabat/bawahan bernaung — dipakai utk membatasi tampilan dashboard
+   Kepala Divisi supaya HANYA melihat data divisinya sendiri (bukan lintas divisi lain). */
+function getDivisionOf(email){
+  const info = getRoleInfo(email);
+  if(!info) return null;
+  if(info.role === "kepala_divisi") return email.toLowerCase();
+  if(info.role === "dept_head") return ((info.belongsToDivision && info.belongsToDivision.toLowerCase()) || "admin@progdist.erzet");
+  if(info.role === "subordinate"){
+    const deptHead = computeSelfAssignedBy(email);
+    return deptHead ? getDivisionOf(deptHead) : null;
+  }
+  return null;
+}
 /* Kalau seorang pejabat/bawahan melakukan assessment SENDIRI lewat tombol di dashboardnya
    (bukan lewat Link Penugasan biasa), pemberi tugasnya otomatis mengikuti struktur organisasi:
    - Bawahan (mis. PRCB) -> pemberi tugas = Kepala Dept-nya (mis. SOSV), BUKAN dirinya sendiri.
@@ -736,7 +796,7 @@ function computeSelfAssignedBy(email){
 function getDeptAbbrFromEmail(email){
   const info = getRoleInfo(email);
   if(!info) return null;
-  if(info.role === "kepala_divisi") return "PROGDIST";
+  if(info.role === "kepala_divisi") return email.toLowerCase()==="admin@progdist.erzet" ? "PROGDIST" : (info.nama || "DIVISI").toUpperCase();
   if(info.role === "super_admin") return "ADMIN PUSAT";
   const m = (info.dept || "").match(/Dept\.?\s*(\S+)/i);
   return m ? m[1].toUpperCase() : (info.dept || null);
@@ -761,8 +821,21 @@ function isOpenQueueItem(s){
 function getVisibleSubmissionsForRole(list, email){
   const info = getRoleInfo(email);
   if(!info) return [];
-  // Admin Pusat (developer web) & Kepala Divisi sama-sama melihat SELURUH assessment.
-  if(info.role === "kepala_divisi" || info.role === "super_admin") return list;
+  // Admin Pusat (developer web) melihat SELURUH assessment lintas divisi mana pun.
+  if(info.role === "super_admin") return list;
+  // Kepala Divisi HANYA melihat data divisinya sendiri (bukan lintas divisi lain) — antrian
+  // terbuka (belum ditugaskan/direview siapa pun) tetap terlihat lintas divisi supaya ada
+  // yang bisa mengambilnya.
+  if(info.role === "kepala_divisi"){
+    const myDivision = email.toLowerCase();
+    return list.filter(s=>{
+      if(isOpenQueueItem(s)) return true;
+      if(s.performed_by && getDivisionOf(s.performed_by) === myDivision) return true;
+      if(s.assigned_by) return getDivisionOf(s.assigned_by) === myDivision;
+      if(s.admin_status && s.admin_signed_by) return getDivisionOf(s.admin_signed_by) === myDivision;
+      return false;
+    });
+  }
   const allowed = info.role === "dept_head"
     ? new Set([...getSubordinatesOf(email), email.toLowerCase()])
     : new Set([email.toLowerCase()]);
@@ -3415,16 +3488,29 @@ async function renderManageAccountsPanel(box){
     )
   );
 
-  // Level Jabatan menentukan field apa saja yang relevan (Departemen Atasan hanya utk Officer).
+  // Level Jabatan menentukan field apa saja yang relevan:
+  // - Divisi: tidak perlu field tambahan (jadi top-level baru).
+  // - Departemen: perlu pilih Divisi tempat dept ini bernaung.
+  // - Officer: perlu pilih Departemen Atasan (otomatis ikut Divisi departemen tsb).
   const levelSel = el("select",{id:"acc-level"},
     el("option",{value:"kepala_divisi"}, "Divisi (Kepala Divisi)"),
     el("option",{value:"dept_head"}, "Departemen (Kepala Departemen)"),
     el("option",{value:"subordinate", selected:"selected"}, "Officer (Bawahan)"),
   );
-  const deptHeadOptions = Object.entries(getAllRoleEntries()).filter(([e,i])=>i.role==="dept_head");
+  const allEntries = getAllRoleEntries();
+  const divisiOptions = Object.entries(allEntries).filter(([e,i])=>i.role==="kepala_divisi");
+  const divisiSel = el("select",{id:"acc-divisi"},
+    el("option",{value:""}, "Pilih Divisi..."),
+    ...divisiOptions.map(([e,i])=> el("option",{value:e}, `${i.nama||e} (${e})`)),
+  );
+  const divisiWrap = el("div",{class:"field-tight", id:"acc-divisi-wrap"}, el("label",{}, "Divisi (Departemen ini bernaung di bawah Divisi mana)"), divisiSel);
+
+  const deptHeadOptions = Object.entries(allEntries).filter(([e,i])=>i.role==="dept_head");
   const reportsToSel = el("select",{id:"acc-reportsto"},
     el("option",{value:""}, "Pilih Departemen Atasan..."),
-    ...deptHeadOptions.map(([e,i])=> el("option",{value:e}, `${i.dept||e} (${i.nama||e})`)),
+    ...deptHeadOptions.map(([e,i])=> el("option",{value:e},
+      `${i.dept||e} (${i.nama||e}) — Divisi ${(allEntries[(i.belongsToDivision||"admin@progdist.erzet").toLowerCase()]||{}).nama || i.belongsToDivision || "Progdist"}`
+    )),
   );
   const reportsToWrap = el("div",{class:"field-tight", id:"acc-reportsto-wrap"}, el("label",{}, "Departemen Atasan (Officer melapor ke siapa)"), reportsToSel);
   const namaJabatanWrap = el("div",{class:"field-tight", id:"acc-namajabatan-wrap"}, el("label",{}, "Nama Jabatan / Departemen"), el("input",{type:"text", id:"acc-namajabatan", placeholder:"Contoh: Dept. Logistik"}));
@@ -3433,11 +3519,13 @@ async function renderManageAccountsPanel(box){
     const lv = levelSel.value;
     reportsToWrap.style.display = lv === "subordinate" ? "" : "none";
     namaJabatanWrap.style.display = lv === "dept_head" ? "" : "none";
+    divisiWrap.style.display = lv === "dept_head" ? "" : "none";
   };
   levelSel.addEventListener("change", updateVisibleFields);
 
   panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Level Jabatan"), levelSel));
   panel.appendChild(namaJabatanWrap);
+  panel.appendChild(divisiWrap);
   panel.appendChild(reportsToWrap);
   panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Nama Pejabat"), el("input",{type:"text", id:"acc-nama", placeholder:"Contoh: Ahmad Fauzi"})));
   panel.appendChild(el("div",{class:"field-tight"}, el("label",{}, "Kontak Pejabat (No. Telepon)"), el("input",{type:"tel", id:"acc-telp", placeholder:"Contoh: 081234567890"})));
@@ -3483,6 +3571,7 @@ async function renderManageAccountsPanel(box){
   panel.appendChild(el("button",{class:"btn btn-primary", type:"button", style:"margin-top:12px;", onclick: async ()=>{
     const level = levelSel.value;
     const namaJabatan = $("#acc-namajabatan").value.trim();
+    const divisi = divisiSel.value;
     const reportsTo = reportsToSel.value;
     const nama = $("#acc-nama").value.trim();
     const telp = $("#acc-telp").value.trim();
@@ -3494,6 +3583,7 @@ async function renderManageAccountsPanel(box){
     if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("Mohon isi Email Login yang valid."); return; }
     if(!password || password.length < 6){ toast("Kata Sandi Awal minimal 6 karakter."); return; }
     if(level === "dept_head" && !namaJabatan){ toast("Mohon isi Nama Jabatan / Departemen."); return; }
+    if(level === "dept_head" && !divisi){ toast("Mohon pilih Divisi tempat Departemen ini bernaung."); return; }
     if(level === "subordinate" && !reportsTo){ toast("Mohon pilih Departemen Atasan untuk Officer."); return; }
     if(getRoleInfo(email)){ toast("Email ini sudah terdaftar dalam struktur akses."); return; }
 
@@ -3501,7 +3591,7 @@ async function renderManageAccountsPanel(box){
       const newUid = await createNewLoginAccount(email, password);
 
       const roleDoc = { role: level, nama, telp, createdBy: auth.currentUser.email, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
-      if(level === "dept_head") roleDoc.dept = namaJabatan;
+      if(level === "dept_head"){ roleDoc.dept = namaJabatan; roleDoc.belongsToDivision = divisi; }
       if(level === "subordinate"){
         roleDoc.reportsTo = reportsTo;
         roleDoc.dept = (getRoleInfo(reportsTo)||{}).dept || "";
