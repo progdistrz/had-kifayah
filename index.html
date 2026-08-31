@@ -3632,6 +3632,43 @@ async function renderManageAccountsPanel(box){
    Firebase Auth) — kalau perlu ganti, daftarkan akun baru & nonaktifkan yang lama secara
    manual di Firebase Console. Dipisah jadi fungsi sendiri supaya bisa dipanggil ulang
    (refresh) setelah mendaftarkan akun baru ATAU setelah menyimpan perubahan edit. */
+/* Mengirim EMAIL RESET KATA SANDI ke akun tsb — satu-satunya cara AMAN mengubah kata sandi
+   akun ORANG LAIN dari sisi client (browser) tanpa server backend. Firebase Auth (SDK client)
+   sengaja TIDAK menyediakan cara membaca/menimpa kata sandi akun lain secara langsung — itu
+   hanya bisa lewat Firebase Admin SDK di server, yang TIDAK dipakai aplikasi statis ini.
+   CATATAN PENTING: ini hanya benar-benar berguna kalau email akun tsb adalah alamat email
+   NYATA yang bisa menerima pesan (mis. Gmail asli) — bukan alamat fiktif seperti pola
+   "nama@progdist.erzet" yang dipakai contoh di aplikasi ini. */
+async function resetAccountPassword(email){
+  if(FIREBASE_NOT_CONFIGURED){ toast("Firebase belum dikonfigurasi."); return; }
+  if(!confirm(`Kirim email reset kata sandi ke ${email}?\n\nCatatan: ini hanya berfungsi jika alamat tsb adalah email NYATA yang bisa menerima pesan (bukan alamat fiktif/contoh).`)) return;
+  try{
+    await auth.sendPasswordResetEmail(email);
+    toast("Email reset kata sandi telah dikirim (jika alamatnya benar & aktif).");
+  } catch(err){
+    toast("Gagal mengirim email reset: " + (err.message || String(err)));
+  }
+}
+/* Menghapus akses akun tsb ke aplikasi (hapus dari org_roles, jadi getRoleInfo tak akan
+   mengenalinya lagi — begitu mereka coba login berikutnya akan diblokir "belum terdaftar").
+   PENTING: ini TIDAK menghapus akun LOGIN Firebase Authentication-nya (Firebase Auth Web SDK
+   client sengaja tidak menyediakan cara menghapus akun ORANG LAIN — hanya akun yang SEDANG
+   login sendiri yang bisa hapus dirinya sendiri via user.delete()). Kalau ingin akun login-nya
+   benar-benar hilang total (bukan cuma kehilangan akses), harus dihapus manual lewat Firebase
+   Console → Authentication → Users. */
+async function deleteRegisteredAccount(box, email, data){
+  const levelLabel = data.role === "kepala_divisi" ? "Divisi" : data.role === "dept_head" ? "Departemen" : "Officer";
+  if(!confirm(`Hapus akses "${data.nama||email}" (${levelLabel}) dari aplikasi ini?\n\nAkun login Firebase-nya TIDAK ikut terhapus (perlu dihapus manual lewat Firebase Console kalau perlu) — tapi begitu dihapus di sini, mereka tidak akan bisa lagi masuk ke dashboard.`)) return;
+  try{
+    await db.collection("org_roles").doc(email).delete();
+    if(data.uid){
+      try{ await db.collection("admin_profiles").doc(data.uid).delete(); } catch(e){ /* opsional, jangan gagalkan penghapusan utama */ }
+    }
+    delete DYNAMIC_ROLES[email];
+    toast("Akses akun berhasil dihapus.");
+    await renderAccountsList(box);
+  } catch(err){ toast("Gagal menghapus akun: " + friendlyFirestoreError(err)); }
+}
 async function renderAccountsList(box){
   const old = $("#accounts-list-panel");
   if(old) old.remove();
@@ -3653,6 +3690,8 @@ async function renderAccountsList(box){
         el("div",{style:"display:flex;align-items:center;gap:10px;"},
           el("div",{class:"mono", style:"font-size:12px;"}, d.telp || "-"),
           el("button",{class:"inline-btn", type:"button", style:"margin-top:0;", onclick:()=> openEditAccountForm(listPanel, doc.id, d)}, "✏️ Edit"),
+          el("button",{class:"inline-btn", type:"button", style:"margin-top:0;", onclick:()=> resetAccountPassword(doc.id)}, "🔑 Reset Password"),
+          el("button",{class:"inline-btn", type:"button", style:"margin-top:0;color:var(--danger);", onclick:()=> deleteRegisteredAccount(box, doc.id, d)}, "🗑️ Hapus"),
         )
       );
       row.id = "acc-row-" + doc.id.replace(/[^a-z0-9]/gi,"_");
