@@ -3096,7 +3096,7 @@ function renderAdminPage(app){
     return;
   }
 
-  auth.onAuthStateChanged(user=>{
+  auth.onAuthStateChanged(async user=>{
     // PENTING: user bisa saja login ANONIM (dibuat otomatis oleh ensureAnonAuth() di halaman
     // Full/Rapid Assessment & link mandiri). Anonymous auth BUKAN admin — hanya email/password
     // asli yang boleh masuk ke dashboard. Tanpa cek isAnonymous ini, siapa pun yang baru saja
@@ -3107,8 +3107,20 @@ function renderAdminPage(app){
     wrap.appendChild(topbar(isRealAdmin, isRealAdmin ? user.email : null));
     const shell = el("div",{class:"shell"});
     wrap.appendChild(shell);
-    if(isRealAdmin) renderDashboard(shell, user);
-    else renderLoginForm(shell);
+    if(isRealAdmin){
+      // loadDynamicRoles() yang dijalankan di INIT (saat aplikasi pertama kali dibuka) SELALU
+      // gagal kalau Firestore Rules org_roles mensyaratkan request.auth != null — karena pada
+      // saat itu belum ada siapa pun yang login sama sekali. Begitu admin BERHASIL login di
+      // sini, muat ULANG org_roles (kali ini permintaannya sudah terautentikasi) supaya akun
+      // yang didaftarkan lewat "Kelola Akun" (termasuk Divisi/Departemen/Officer baru) benar-
+      // benar dikenali, bukan cuma akun bawaan (ROLE_HIERARCHY hardcoded).
+      shell.appendChild(el("div",{class:"setup-banner"}, "Memuat struktur akses…"));
+      await loadDynamicRoles();
+      shell.innerHTML = "";
+      renderDashboard(shell, user);
+    } else {
+      renderLoginForm(shell);
+    }
   });
 }
 
