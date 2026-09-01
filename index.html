@@ -515,6 +515,17 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
         function isInDept(deptEmails) {
           return request.auth.token.email in deptEmails || reportsToDept(deptEmails);
         }
+        // SAMA seperti reportsToDept() tapi utk email SIAPA PUN (bukan cuma requester) — dipakai
+        // deptCanSee() di bawah supaya dokumen yg assigned_by/admin_signed_by-nya Officer BARU
+        // (didaftarkan via Kelola Akun, reportsTo salah satu dept head hardcoded) tetap dianggap
+        // "milik dept ini", bukan cuma email yg ada di daftar hardcoded literal.
+        function personReportsToDept(personEmail, deptEmails) {
+          return exists(/databases/$(database)/documents/org_roles/$(personEmail)) &&
+            get(/databases/$(database)/documents/org_roles/$(personEmail)).data.reportsTo in deptEmails;
+        }
+        function personIsInDept(personEmail, deptEmails) {
+          return personEmail in deptEmails || personReportsToDept(personEmail, deptEmails);
+        }
         // "Antrian terbuka" = belum ditugaskan lewat Link Tugas siapa pun (assigned_by) DAN
         // belum direview siapa pun (admin_status). PENTING: field ini SELALU disimpan oleh
         // aplikasi meski nilainya null (bukan dihilangkan) — jadi di sini juga wajib dicek
@@ -528,13 +539,15 @@ table.data-table tr.rowlink:hover{ background: var(--primary-tint); }
         // HARUS SAMA PERSIS dengan getVisibleSubmissionsForRole() di index.html.
         // Begitu assigned_by SUDAH terisi, itu jadi SATU-SATUNYA penentu departemen pemilik
         // (mengabaikan admin_signed_by dari dept lain) — supaya item yang sudah ditugaskan
-        // tidak lagi ikut terlihat oleh dept yang bukan pemiliknya.
+        // tidak lagi ikut terlihat oleh dept yang bukan pemiliknya. Pakai personIsInDept()
+        // (bukan cuma "in deptEmails" polos) supaya Officer BARU di dept ini (didaftarkan via
+        // Kelola Akun, blm ada di daftar hardcoded) tetap ikut terhitung.
         function deptCanSee(data, deptEmails) {
           return isOpenQueue(data) ||
             (("assigned_by" in data) && data.assigned_by != null
-              ? data.assigned_by in deptEmails
+              ? personIsInDept(data.assigned_by, deptEmails)
               : (("admin_status" in data) && data.admin_status != null &&
-                  ("admin_signed_by" in data) && data.admin_signed_by != null && data.admin_signed_by in deptEmails));
+                  ("admin_signed_by" in data) && data.admin_signed_by != null && personIsInDept(data.admin_signed_by, deptEmails)));
         }
         // ---- Dukungan Divisi BARU (didaftarkan Admin Pusat lewat "Kelola Akun", di luar
         // Divisi Progdist lama yang hardcoded admin@progdist.erzet di atas). HARUS SAMA
