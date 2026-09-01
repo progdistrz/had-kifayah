@@ -904,6 +904,9 @@ const uid = () => Math.random().toString(36).slice(2,9);
    petunjuk perbaikan langsung di pesan errornya. */
 function friendlyFirestoreError(err){
   const raw = (err && err.message) || String(err);
+  if(err && (err.code === "failed-precondition" || /requires an index/i.test(raw))){
+    return "Query ini butuh index Firestore yang belum dibuat. Buka Console → cari pesan error lengkap di tab Network/Console browser (F12) — biasanya berisi LINK LANGSUNG utk membuat index tsb otomatis (klik link itu, tunggu 1-2 menit, lalu muat ulang halaman). Pesan asli: " + raw;
+  }
   if(err && (err.code === "permission-denied" || /permission/i.test(raw))){
     return "Izin ditolak oleh Firestore. Periksa 2 hal: (1) Authentication → Sign-in method → \"Anonymous\" harus AKTIF, (2) Firestore → Rules harus sudah dipublikasikan sesuai contoh di komentar awal index.html (cari \"FIREBASE CONFIG\"). Pesan asli: " + raw;
   }
@@ -3183,14 +3186,23 @@ function getScopedQueries(roleInfo, email){
   if(roleInfo.role === "super_admin" || key === "admin@progdist.erzet"){
     return [ db.collection(COLLECTION).orderBy("submittedAt","desc") ];
   }
-  const inBatches = (field, values) => {
+  const inBatches = (field, values, extra) => {
     const out = [];
     for(let i=0;i<values.length;i+=30){ // batas "in" Firestore maks 30 nilai per query
-      out.push(db.collection(COLLECTION).where(field, "in", values.slice(i, i+30)));
+      let q = db.collection(COLLECTION).where(field, "in", values.slice(i, i+30));
+      if(extra) q = extra(q);
+      out.push(q);
     }
     return out;
   };
-  const queries = [ db.collection(COLLECTION).where("assigned_by", "==", null) ]; // antrian terbuka, lintas dept/divisi
+  // PENTING: query "antrian terbuka" harus PERSIS cocok dengan isOpenQueueItem() —
+  // assigned_by KOSONG *DAN* admin_status KOSONG. Kalau cuma cek assigned_by==null saja
+  // (tanpa admin_status), query ini bisa ikut menangkap dokumen yang SUDAH direview satu
+  // dept tapi TIDAK PERNAH ditugaskan lewat Link Penugasan (assigned_by tetap null walau
+  // sudah admin_status) — dokumen semacam itu HANYA boleh dibaca dept yang mereview-nya,
+  // sehingga kalau ikut kepencet di query "utk semua orang" ini, Firestore MENOLAK SELURUH
+  // query begitu ada satu saja dokumen seperti itu tersimpan — persis penyebab bug ini.
+  const queries = [ db.collection(COLLECTION).where("assigned_by", "==", null).where("admin_status", "==", null) ];
 
   if(roleInfo.role === "kepala_divisi"){
     // Divisi baru (didaftarkan via Kelola Akun): kumpulkan semua Kepala Dept + Officer di
@@ -3201,15 +3213,17 @@ function getScopedQueries(roleInfo, email){
       .map(([e]) => e);
     if(myPeople.length){
       queries.push(...inBatches("assigned_by", myPeople));
-      queries.push(...inBatches("admin_signed_by", myPeople));
+      // Dokumen "legacy" (direview tapi tak pernah ditugaskan) HANYA dijamin cocok dgn Rules
+      // kalau assigned_by-nya memang kosong — samakan dgn syarat itu di query jg.
+      queries.push(...inBatches("admin_signed_by", myPeople, q=>q.where("assigned_by","==",null)));
     }
   } else if(roleInfo.role === "dept_head"){
     const myPeople = [...getSubordinatesOf(email), key];
     queries.push(...inBatches("assigned_by", myPeople));
-    queries.push(...inBatches("admin_signed_by", myPeople));
+    queries.push(...inBatches("admin_signed_by", myPeople, q=>q.where("assigned_by","==",null)));
   } else { // subordinate
     queries.push(db.collection(COLLECTION).where("performed_by", "==", key));
-    queries.push(db.collection(COLLECTION).where("admin_signed_by", "==", key));
+    queries.push(db.collection(COLLECTION).where("admin_signed_by", "==", key).where("assigned_by","==",null));
   }
   return queries;
 }
