@@ -3166,6 +3166,83 @@ let ADMIN_SIGNATURE = null;
 let ADMIN_NAME = null;
 let ADMIN_TELP = null;
 let CURRENT_VIEWER_ROLE = null;
+/* ----------------------------------------------------------------
+   Query dashboard yang DIBATASI (bukan ambil semua lalu saring belakangan).
+   ----------------------------------------------------------------
+   PENTING: Firestore MENOLAK SELURUH query kalau ADA SATU SAJA dokumen dalam hasilnya yang
+   tidak boleh dibaca pengguna tsb menurut Security Rules — bukan cuma menyembunyikan dokumen
+   itu, tapi seluruh listener gagal dgn "Missing or insufficient permissions". Karena itu,
+   untuk siapa pun yang aksesnya TERBATAS (bukan super_admin / Kepala Divisi lama yg memang
+   boleh baca semua), query ke Firestore-nya sendiri harus SUDAH dipersempit pakai where()
+   supaya Firestore tidak pernah mencoba mengembalikan dokumen yang bukan haknya — bukan
+   mengandalkan filter JS (getVisibleSubmissionsForRole) semata seperti sebelumnya. */
+function getScopedQueries(roleInfo, email){
+  const key = email.toLowerCase();
+  // Admin Pusat & Kepala Divisi Progdist (lama, hardcoded) memang diizinkan Rules membaca
+  // SEMUA dokumen tanpa syarat — aman pakai satu query utuh spt sebelumnya.
+  if(roleInfo.role === "super_admin" || key === "admin@progdist.erzet"){
+    return [ db.collection(COLLECTION).orderBy("submittedAt","desc") ];
+  }
+  const inBatches = (field, values) => {
+    const out = [];
+    for(let i=0;i<values.length;i+=30){ // batas "in" Firestore maks 30 nilai per query
+      out.push(db.collection(COLLECTION).where(field, "in", values.slice(i, i+30)));
+    }
+    return out;
+  };
+  const queries = [ db.collection(COLLECTION).where("assigned_by", "==", null) ]; // antrian terbuka, lintas dept/divisi
+
+  if(roleInfo.role === "kepala_divisi"){
+    // Divisi baru (didaftarkan via Kelola Akun): kumpulkan semua Kepala Dept + Officer di
+    // divisinya sendiri, lalu cari dokumen yang assigned_by/admin_signed_by-nya salah satu dari mereka.
+    const all = getAllRoleEntries();
+    const myPeople = Object.entries(all)
+      .filter(([e,i]) => (i.role === "dept_head" || i.role === "subordinate") && getDivisionOf(e) === key)
+      .map(([e]) => e);
+    if(myPeople.length){
+      queries.push(...inBatches("assigned_by", myPeople));
+      queries.push(...inBatches("admin_signed_by", myPeople));
+    }
+  } else if(roleInfo.role === "dept_head"){
+    const myPeople = [...getSubordinatesOf(email), key];
+    queries.push(...inBatches("assigned_by", myPeople));
+    queries.push(...inBatches("admin_signed_by", myPeople));
+  } else { // subordinate
+    queries.push(db.collection(COLLECTION).where("performed_by", "==", key));
+    queries.push(db.collection(COLLECTION).where("admin_signed_by", "==", key));
+  }
+  return queries;
+}
+/* Memasang beberapa listener onSnapshot sekaligus (satu per query hasil getScopedQueries)
+   dan menggabungkan hasilnya jadi satu daftar (dedupe by id), diurutkan ulang di JS (bukan
+   lewat orderBy() Firestore) supaya tidak perlu bikin composite index tambahan di Firestore
+   utk tiap kombinasi where()+orderBy(). Mengembalikan satu fungsi unsubscribe gabungan. */
+function attachScopedAssessmentListener(roleInfo, email, onData, onError){
+  const queries = getScopedQueries(roleInfo, email);
+  const perQueryDocs = queries.map(()=> new Map());
+  let hasErrored = false;
+  const emitMerged = ()=>{
+    const merged = new Map();
+    perQueryDocs.forEach(m=> m.forEach((data, id)=> merged.set(id, data)));
+    const list = Array.from(merged.values());
+    list.sort((a,b)=>{
+      const da = getSubDate(a), db_ = getSubDate(b);
+      return (db_ ? db_.getTime() : 0) - (da ? da.getTime() : 0);
+    });
+    onData(list);
+  };
+  const unsubs = queries.map((q, idx) => q.onSnapshot(snap=>{
+    const m = new Map();
+    snap.docs.forEach(d=> m.set(d.id, { id:d.id, ...d.data() }));
+    perQueryDocs[idx] = m;
+    emitMerged();
+  }, err=>{
+    if(hasErrored) return; // cukup laporkan sekali walau beberapa query gagal bersamaan
+    hasErrored = true;
+    onError(err);
+  }));
+  return () => unsubs.forEach(u=>u());
+}
 function renderDashboard(shell, user){
   const roleInfo = getRoleInfo(user.email);
   if(!roleInfo){
@@ -3261,13 +3338,15 @@ function renderDashboard(shell, user){
   tableWrap.innerHTML = "";
   tableWrap.appendChild(el("div",{class:"empty-state"}, el("div",{class:"big"},"⏳"), "Memuat data…"));
 
-  unsubscribeSnapshot = db.collection(COLLECTION).orderBy("submittedAt","desc").onSnapshot(snap=>{
+  unsubscribeSnapshot = attachScopedAssessmentListener(roleInfo, user.email, docs=>{
     // "awaiting_review" (menunggu surveyor) & "surveyor_reviewed" (sudah direview, belum disubmit
     // massal) sengaja belum ditampilkan ke Admin — sesuai alur: baru masuk dashboard setelah
     // surveyor menekan "Kirim ke Admin" / "Submit Semua ke Admin".
-    const visibleStatus = snap.docs.map(d=>({ id:d.id, ...d.data() }))
-      .filter(s => s.status_review !== "awaiting_review" && s.status_review !== "surveyor_reviewed");
-    // Batasi lagi sesuai hirarki jabatan (kepala divisi/dept head/bawahan) — lihat ROLE_HIERARCHY.
+    const visibleStatus = docs.filter(s => s.status_review !== "awaiting_review" && s.status_review !== "surveyor_reviewed");
+    // Filter JS tetap dijalankan sbg lapis kedua (double-check) meski query Firestore-nya
+    // sudah dipersempit — supaya tampilan tetap benar walau query gabungan sedikit lebih luas
+    // dari yang seharusnya (mis. hasil query "in" mengembalikan dokumen yg ternyata scr aturan
+    // detail JS tidak seharusnya tampil).
     ALL_SUBMISSIONS = getVisibleSubmissionsForRole(visibleStatus, user.email);
     populateDynamicFilters();
     renderStats(statRow);
