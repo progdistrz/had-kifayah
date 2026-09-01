@@ -917,13 +917,14 @@ const uid = () => Math.random().toString(36).slice(2,9);
    petunjuk perbaikan langsung di pesan errornya. */
 function friendlyFirestoreError(err){
   const raw = (err && err.message) || String(err);
+  const queryTag = (err && err.__scopedQueryLabel) ? ` [query: ${err.__scopedQueryLabel}]` : "";
   if(err && (err.code === "failed-precondition" || /requires an index/i.test(raw))){
-    return "Query ini butuh index Firestore yang belum dibuat. Buka Console → cari pesan error lengkap di tab Network/Console browser (F12) — biasanya berisi LINK LANGSUNG utk membuat index tsb otomatis (klik link itu, tunggu 1-2 menit, lalu muat ulang halaman). Pesan asli: " + raw;
+    return "Query ini butuh index Firestore yang belum dibuat. Buka Console → cari pesan error lengkap di tab Network/Console browser (F12) — biasanya berisi LINK LANGSUNG utk membuat index tsb otomatis (klik link itu, tunggu 1-2 menit, lalu muat ulang halaman). Pesan asli: " + raw + queryTag;
   }
   if(err && (err.code === "permission-denied" || /permission/i.test(raw))){
-    return "Izin ditolak oleh Firestore. Periksa 2 hal: (1) Authentication → Sign-in method → \"Anonymous\" harus AKTIF, (2) Firestore → Rules harus sudah dipublikasikan sesuai contoh di komentar awal index.html (cari \"FIREBASE CONFIG\"). Pesan asli: " + raw;
+    return "Izin ditolak oleh Firestore. Periksa 2 hal: (1) Authentication → Sign-in method → \"Anonymous\" harus AKTIF, (2) Firestore → Rules harus sudah dipublikasikan sesuai contoh di komentar awal index.html (cari \"FIREBASE CONFIG\"). Pesan asli: " + raw + queryTag;
   }
-  return raw;
+  return raw + queryTag;
 }
 /* Format ribuan "500000" -> "500.000". Dipakai live saat mengetik nominal. */
 function formatRibuanDigits(digits){
@@ -3197,14 +3198,14 @@ function getScopedQueries(roleInfo, email){
   // Admin Pusat & Kepala Divisi Progdist (lama, hardcoded) memang diizinkan Rules membaca
   // SEMUA dokumen tanpa syarat — aman pakai satu query utuh spt sebelumnya.
   if(roleInfo.role === "super_admin" || key === "admin@progdist.erzet"){
-    return [ db.collection(COLLECTION).orderBy("submittedAt","desc") ];
+    return [ { label:"full-collection", query: db.collection(COLLECTION).orderBy("submittedAt","desc") } ];
   }
-  const inBatches = (field, values, extra) => {
+  const inBatches = (label, field, values, extra) => {
     const out = [];
     for(let i=0;i<values.length;i+=30){ // batas "in" Firestore maks 30 nilai per query
       let q = db.collection(COLLECTION).where(field, "in", values.slice(i, i+30));
       if(extra) q = extra(q);
-      out.push(q);
+      out.push({ label: `${label}[${i}-${i+29}]`, query: q });
     }
     return out;
   };
@@ -3215,7 +3216,7 @@ function getScopedQueries(roleInfo, email){
   // sudah admin_status) — dokumen semacam itu HANYA boleh dibaca dept yang mereview-nya,
   // sehingga kalau ikut kepencet di query "utk semua orang" ini, Firestore MENOLAK SELURUH
   // query begitu ada satu saja dokumen seperti itu tersimpan — persis penyebab bug ini.
-  const queries = [ db.collection(COLLECTION).where("assigned_by", "==", null).where("admin_status", "==", null) ];
+  const queries = [ { label:"open-queue", query: db.collection(COLLECTION).where("assigned_by", "==", null).where("admin_status", "==", null) } ];
 
   if(roleInfo.role === "kepala_divisi"){
     // Divisi baru (didaftarkan via Kelola Akun): kumpulkan semua Kepala Dept + Officer di
@@ -3225,28 +3226,31 @@ function getScopedQueries(roleInfo, email){
       .filter(([e,i]) => (i.role === "dept_head" || i.role === "subordinate") && getDivisionOf(e) === key)
       .map(([e]) => e);
     if(myPeople.length){
-      queries.push(...inBatches("assigned_by", myPeople));
+      queries.push(...inBatches("divisi-assigned_by", "assigned_by", myPeople));
       // Dokumen "legacy" (direview tapi tak pernah ditugaskan) HANYA dijamin cocok dgn Rules
       // kalau assigned_by-nya memang kosong — samakan dgn syarat itu di query jg.
-      queries.push(...inBatches("admin_signed_by", myPeople, q=>q.where("assigned_by","==",null)));
+      queries.push(...inBatches("divisi-admin_signed_by", "admin_signed_by", myPeople, q=>q.where("assigned_by","==",null)));
     }
   } else if(roleInfo.role === "dept_head"){
     const myPeople = [...getSubordinatesOf(email), key];
-    queries.push(...inBatches("assigned_by", myPeople));
-    queries.push(...inBatches("admin_signed_by", myPeople, q=>q.where("assigned_by","==",null)));
+    queries.push(...inBatches("dept-assigned_by", "assigned_by", myPeople));
+    queries.push(...inBatches("dept-admin_signed_by", "admin_signed_by", myPeople, q=>q.where("assigned_by","==",null)));
   } else { // subordinate
-    queries.push(db.collection(COLLECTION).where("performed_by", "==", key));
-    queries.push(db.collection(COLLECTION).where("admin_signed_by", "==", key).where("assigned_by","==",null));
+    queries.push({ label:"performed_by-mine", query: db.collection(COLLECTION).where("performed_by", "==", key) });
+    queries.push({ label:"admin_signed_by-mine", query: db.collection(COLLECTION).where("admin_signed_by", "==", key).where("assigned_by","==",null) });
   }
   return queries;
 }
 /* Memasang beberapa listener onSnapshot sekaligus (satu per query hasil getScopedQueries)
    dan menggabungkan hasilnya jadi satu daftar (dedupe by id), diurutkan ulang di JS (bukan
    lewat orderBy() Firestore) supaya tidak perlu bikin composite index tambahan di Firestore
-   utk tiap kombinasi where()+orderBy(). Mengembalikan satu fungsi unsubscribe gabungan. */
+   utk tiap kombinasi where()+orderBy(). Mengembalikan satu fungsi unsubscribe gabungan.
+   PENTING: tiap query diberi LABEL deskriptif, dan kalau ada yg gagal, label itu disertakan
+   di pesan error — supaya kalau masih ada kasus izin ditolak yg belum ketemu akar masalahnya,
+   setidaknya langsung ketahuan query MANA yg gagal (bukan cuma "ada yg gagal" tanpa petunjuk). */
 function attachScopedAssessmentListener(roleInfo, email, onData, onError){
-  const queries = getScopedQueries(roleInfo, email);
-  const perQueryDocs = queries.map(()=> new Map());
+  const scoped = getScopedQueries(roleInfo, email);
+  const perQueryDocs = scoped.map(()=> new Map());
   let hasErrored = false;
   const emitMerged = ()=>{
     const merged = new Map();
@@ -3258,7 +3262,7 @@ function attachScopedAssessmentListener(roleInfo, email, onData, onError){
     });
     onData(list);
   };
-  const unsubs = queries.map((q, idx) => q.onSnapshot(snap=>{
+  const unsubs = scoped.map(({label, query}, idx) => query.onSnapshot(snap=>{
     const m = new Map();
     snap.docs.forEach(d=> m.set(d.id, { id:d.id, ...d.data() }));
     perQueryDocs[idx] = m;
@@ -3266,6 +3270,8 @@ function attachScopedAssessmentListener(roleInfo, email, onData, onError){
   }, err=>{
     if(hasErrored) return; // cukup laporkan sekali walau beberapa query gagal bersamaan
     hasErrored = true;
+    err.__scopedQueryLabel = label; // dipakai friendlyFirestoreError utk sertakan di pesan
+    console.error(`Query "${label}" gagal:`, err);
     onError(err);
   }));
   return () => unsubs.forEach(u=>u());
